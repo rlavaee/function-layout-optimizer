@@ -1496,9 +1496,8 @@ dnl Configure project makefiles
 dnl List every Makefile that exists within your source tree
 AC_CONFIG_MAKEFILE(Makefile)
 AC_CONFIG_MAKEFILE(lib/Makefile)
-AC_CONFIG_MAKEFILE(lib/FunctionTracing/Makefile)
-AC_CONFIG_MAKEFILE(runtime/Makefile)
-AC_CONFIG_MAKEFILE(runtime/FunctionTracingRuntime/Makefile)
+AC_CONFIG_MAKEFILE(lib/FunctionReordering/Makefile)
+AC_CONFIG_MAKEFILE(lib/CacheCounting/Makefile)
 
 dnl This must be last
 AC_OUTPUT
