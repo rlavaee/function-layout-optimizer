@@ -1,13 +1,10 @@
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/Instructions.h"
+#include "CommonTracing.hpp"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Transforms/Utils/Cloning.h"
-#include "../CommonTracing.hpp"
 using namespace llvm;
 
 namespace {
@@ -91,7 +88,7 @@ bool CallEdgeTracer::runOnModule(Module &M) {
 	    if (Callee && !Callee->isDeclaration()){
 	      ++II;
 	      if(II!=E)
-		InsertInstrumentationCall(II, "trace_call", FuncNumber, 
+		InsertInstrumentationCall(II, "trace_call_edge", FuncNumber, 
 					func_ids[Callee->getName().str()],BBNumber);
 	      --II;
 	    }

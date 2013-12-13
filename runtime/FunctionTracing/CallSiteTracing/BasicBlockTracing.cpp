@@ -13,7 +13,6 @@
 |*
 \*===----------------------------------------------------------------------===*/
 
-//#include "Profiling.hpp"
 #include "affinity.hpp"
 #include <cstdlib>
 #include <cstdio>
@@ -60,7 +59,7 @@ static void BBTraceAtExitHandler(void) {
 }
 
 /* llvm_trace_basic_block - called upon hitting a new basic block. */
-extern "C" void llvm_trace_basic_block (short FuncNum) {
+extern "C" void record_function_exec (short FuncNum) {
     sample_window(FuncNum);
 }
 
@@ -68,7 +67,7 @@ extern "C" void llvm_trace_basic_block (short FuncNum) {
  * block tracing library.  It is responsible for setting up the atexit
  * handler and allocating the trace buffer.
  */
-extern "C" int llvm_start_basic_block_tracing(short _totalFuncs) {
+extern "C" int start_call_site_tracing(short _totalFuncs) {
   
   //int ret=save_arguments(argc, argv);
   /*  if(argc>1)

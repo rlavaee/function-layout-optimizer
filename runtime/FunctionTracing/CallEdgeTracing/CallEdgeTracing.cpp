@@ -55,7 +55,7 @@ struct CGSerializer {
 };
   
 
-extern "C" void prof_call_edge(short caller, short callee){		
+extern "C" void trace_call_edge(short caller, short callee){		
 	if(caller!=callee){
             pair<short,short> call_entry(caller, callee);
 

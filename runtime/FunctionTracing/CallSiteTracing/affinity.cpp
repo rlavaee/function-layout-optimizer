@@ -135,7 +135,7 @@ void initialize_affinity_data(float _sampleRate, short _maxWindowSize, short _to
 
   trace_list_size=0;
 
-  debugFile=fopen("debug.txt","w");
+  //debugFile=fopen("debug.txt","w");
   srand(time(NULL));
 
   short i,wsize;

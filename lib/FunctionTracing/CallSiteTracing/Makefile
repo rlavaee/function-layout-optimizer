@@ -1,6 +1,6 @@
 
 LEVEL = ../../..
-LIBRARYNAME = LLVMFunctionTracing
+LIBRARYNAME = LLVMCallSiteTracing
 BUILD_ARCHIVE = 1
 LOADABLE_MODULE = 1
 

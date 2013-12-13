@@ -1,22 +1,24 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/Instrumentation.h"
-#include <set>
-#include <stdio.h>
-#include <iostream>
+#include <cstdio> 
+
 using namespace llvm;
+
+cl::opt<std::string>
+	LayoutFile("layout",
+                 cl::desc("<Layout File>"),
+                 cl::Required);
+
+
 namespace {
   class FunctionReorderer : public ModulePass {
     
   public:
     static char ID;
-    char * PermutationFilePath;
     FunctionReorderer(): ModulePass(ID){
-      if(setPermutationFilePath()==0){
-	fprintf(stderr,"Function reordering failed : No permutation file is specified.\n");
-	exit(0);
-      }
     }
 
     virtual bool runOnModule(Module &M){
@@ -27,7 +29,11 @@ namespace {
 	if(!F->isDeclaration())
 	  totalFuncs++;
       }
-      FILE * pFile = fopen(PermutationFilePath,"r");
+      FILE * pFile = fopen(LayoutFile.c_str(),"r");
+			if(pFile==NULL){
+				errs() << "No such file:" << LayoutFile.c_str() << "\n";
+				exit(0);
+			}
       
       Function ** newFunctionList= (Function **) malloc(sizeof(Function *)*totalFuncs);
       int * perm = (int *) malloc(sizeof(int)*totalFuncs);
@@ -38,8 +44,8 @@ namespace {
 	++i;
       }
       if(i!=totalFuncs){
-	fprintf(stderr,"The permutation is shorter that expected.\n");
-	exit(0);
+			errs() << "The permutation is shorter that expected\n";
+			exit(0);
 	}
       
       for (F = M.begin(), E = M.end(), i=0; F != E; ++F) {
@@ -57,13 +63,6 @@ namespace {
       return true;
     }
     
-    virtual int setPermutationFilePath(){
-      if((PermutationFilePath = getenv("PERM_FILE")) == NULL)    
-	return 0;
-      
-      return 1;
-    }
-
 
   };
   

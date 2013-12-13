@@ -33,6 +33,8 @@ struct disjointSet {
 	
 };
 
+disjointSet ** disjointSet::sets = 0;
+
 
 int CGECmp(const void * left, const void * right){
 	const CGE * cge_left = (const CGE *) left;

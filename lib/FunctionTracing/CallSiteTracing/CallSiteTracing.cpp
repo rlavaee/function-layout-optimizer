@@ -1,13 +1,10 @@
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/Instructions.h"
+#include "CommonTracing.hpp"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Transforms/Utils/Cloning.h"
-#include "../CommonTracing.hpp"
 using namespace llvm;
 
 namespace {
@@ -25,7 +22,7 @@ namespace {
 }
 
 char BasicBlockTracer::ID = 0;
-static RegisterPass<BasicBlockTracer> X("trace-bb-by-func-id","Insert instrumentation for basic block tracing", false, false);
+static RegisterPass<BasicBlockTracer> X("trace-call-sites","Insert instrumentation for basic block tracing", false, false);
 
 void InsertInstrumentationCall(Instruction *II,
 			       const char *FnName,
@@ -146,7 +143,7 @@ bool BasicBlockTracer::runOnModule(Module &M) {
     
     if(!F->isDeclaration()){
 
-      InsertInstrumentationCall (F->begin(), "llvm_trace_basic_block", FuncNumber, BBNumber);
+      InsertInstrumentationCall (F->begin(), "record_function_exec", FuncNumber, BBNumber);
       for (Function::iterator BB = F->begin(), E = F->end(); BB != E; ++BB) {
 	for (BasicBlock::iterator II = BB->begin(), E= BB->end(); II != E; ++II){
 	  CallSite CS(cast<Value>(II));
@@ -156,7 +153,7 @@ bool BasicBlockTracer::runOnModule(Module &M) {
 	    if (Callee && !Callee->isDeclaration()){
 	      ++II;
 	      if(II!=E)
-		InsertInstrumentationCall(II, "llvm_trace_basic_block", FuncNumber, BBNumber);
+		InsertInstrumentationCall(II, "record_function_exec", FuncNumber, BBNumber);
 	      --II;
 	    }
 	  }
@@ -172,7 +169,7 @@ bool BasicBlockTracer::runOnModule(Module &M) {
 
 
   // Add the initialization call to main.
-  InsertCodeAnalysisInitCall(Main,"llvm_start_basic_block_tracing", FuncNumber); 
+  InsertCodeAnalysisInitCall(Main,"start_call_site_tracing", FuncNumber); 
   return true;
 }
 

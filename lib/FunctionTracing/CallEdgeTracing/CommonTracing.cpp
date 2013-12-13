@@ -1,4 +1,4 @@
-#include "CommonProfiling.hpp"
+#include "CommonTracing.hpp"
 void InsertCodeAnalysisInitCall(Function * MainFn, const char *FnName, short totalFuncs){
   LLVMContext &Context = MainFn->getContext();
   Type *SIntTy = Type::getInt16Ty(Context);
