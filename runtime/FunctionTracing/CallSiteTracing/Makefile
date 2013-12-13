@@ -1,4 +1,4 @@
-##===- runtime/CacheCountingRuntime/Makefile -------------------------*- Makefile -*-===##
+##===- runtime/libprofile/Makefile -------------------------*- Makefile -*-===##
 #
 #                     The LLVM Compiler Infrastructure
 #
@@ -7,17 +7,22 @@
 #
 ##===----------------------------------------------------------------------===##
 
-LEVEL = ../..
+LEVEL = ../../..
 
-LIBRARYNAME = cachecounting_rt
+LIBRARYNAME = call_site_tracing_rt
 LINK_LIBS_IN_SHARED = 1
 SHARED_LIBRARY = 1
 
 # Build and install this archive.                                                                                                                  
 BUILD_ARCHIVE = 1
 override NO_INSTALL_ARCHIVES =
+#CPPFLAGS=-std=c++11 -stdlib=libstdc++
+CPPFLAGS=-I $(HOME)/usr/local/include
 
-LFLAGS= $(LEVEL)/tools/papi-5.3.0/src/libpapi.a
+#CFLAGS=-std=c+11 -stdlib=libc++
+#ifeq ($(OS),Darwin)
+#LDFLAGS=-lc++
+#endif
 
 include $(LEVEL)/Makefile.common
 

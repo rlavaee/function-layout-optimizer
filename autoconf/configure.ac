@@ -1501,7 +1501,11 @@ AC_CONIG_MAKEFILE(lib/Tracing/Makefile)
 AC_CONIG_MAKEFILE(lib/FunctionTracing/CallEdgeTracing/Makefile)
 AC_CONIG_MAKEFILE(lib/FunctionTracing/CallSiteTracing/Makefile)
 AC_CONFIG_MAKEFILE(runtime/Makefile)
-AC_CONFIG_MAKEFILE(runtime/CacheCountingRuntime/Makefile)
+AC_CONFIG_MAKEFILE(runtime/FunctionTracing/Makefile)
+AC_CONFIG_MAKEFILE(runtime/FunctionTracing/CallSiteTracing/Makefile)
+AC_CONFIG_MAKEFILE(runtime/FunctionTracing/BurstyCallSiteTracing/Makefile)
+AC_CONFIG_MAKEFILE(runtime/FunctionTracing/CallEdgeTracing/Makefile)
+AC_CONFIG_MAKEFILE(runtime/CacheCounting/Makefile)
 
 dnl This must be last
 AC_OUTPUT

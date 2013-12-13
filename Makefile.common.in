@@ -2,6 +2,12 @@
 PROJECT_NAME := CGC-Optimizer
 PROJ_VERSION := 0.1
 
+# Set this variable to the path to PAPI runtime library.
+LIBPAPI = @LIBPAPI@
+
+# Set this variable to the top of the Boost include tree.
+BOOST_DIR = @BOOST_DIR@
+
 # Set this variable to the top of the LLVM source tree.
 LLVM_SRC_ROOT = @LLVM_SRC@
 
