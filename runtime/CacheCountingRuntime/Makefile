@@ -1,4 +1,4 @@
-##===- runtime/libprofile/Makefile -------------------------*- Makefile -*-===##
+##===- runtime/CacheCountingRuntime/Makefile -------------------------*- Makefile -*-===##
 #
 #                     The LLVM Compiler Infrastructure
 #

@@ -1,13 +1,13 @@
-##===- lib/Makefile ------------------------*- Makefile -*-===##
+##===- lib/Makefile/Tracing ------------------------*- Makefile -*-===##
 
 #
 # Relative path to the top of the source tree.
 #
-LEVEL=..
+LEVEL=../..
 
 #
 # List all of the subdirectories that we will compile.
 #
-DIRS=FunctionTracing FunctionReordering CacheCounting
+DIRS=CallSiteTracing CallEdgeTracing
 
 include $(LEVEL)/Makefile.common
