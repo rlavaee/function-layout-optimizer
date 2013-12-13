@@ -1498,7 +1498,7 @@ AC_CONFIG_MAKEFILE(Makefile)
 AC_CONFIG_MAKEFILE(lib/Makefile)
 AC_CONFIG_MAKEFILE(lib/FunctionTracing/Makefile)
 AC_CONFIG_MAKEFILE(runtime/Makefile)
-AC_CONFIG_MAKEFILE(runtime/FunctionTracingRuntime/Makefile)
+AC_CONFIG_MAKEFILE(runtime/CacheCountingRuntime/Makefile)
 
 dnl This must be last
 AC_OUTPUT
