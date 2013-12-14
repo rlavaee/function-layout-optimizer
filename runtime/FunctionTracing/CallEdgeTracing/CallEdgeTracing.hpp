@@ -23,7 +23,8 @@ struct disjointSet {
 	size_t size(){ return elements.size();}
 	static void mergeSets(disjointSet *, disjointSet *);
 	static void mergeSets(short id1, short id2){
-		mergeSets(sets[id1],sets[id2]);
+		if(sets[id1]!=sets[id2])
+			mergeSets(sets[id1],sets[id2]);
 	}
 	
 	static void init_new_set(short id){

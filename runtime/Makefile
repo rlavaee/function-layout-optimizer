@@ -7,6 +7,6 @@ LEVEL=..
 #
 # List all of the subdirectories that we will compile.
 #
-DIRS= CacheCountingRuntime
+DIRS= CacheCounting  FunctionTracing
 
 include $(LEVEL)/Makefile.common

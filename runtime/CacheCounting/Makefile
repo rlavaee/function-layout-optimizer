@@ -17,7 +17,7 @@ SHARED_LIBRARY = 1
 BUILD_ARCHIVE = 1
 override NO_INSTALL_ARCHIVES =
 
-LFLAGS= $(LIBPAPI)
+#LFLAGS= $(LIBPAPI)
 
 include $(LEVEL)/Makefile.common
 

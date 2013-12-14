@@ -13,12 +13,12 @@ char ** eventnames;
 long long counters[MAX_EVENT_SIZE];
 long long sumcounters[MAX_EVENT_SIZE];
 
-int * inst_events_3={PAPI_L1_ICM, PAPI_L2_ICM, PAPI_L2_ICA};
-int * inst_events_4={PAPI_L1_ICM, PAPI_L2_ICM, PAPI_L1_ICA, PAPI_L2_ICA};
+int inst_events_3[3]={PAPI_L1_ICM, PAPI_L2_ICM, PAPI_L2_ICA};
+int inst_events_4[4]={PAPI_L1_ICM, PAPI_L2_ICM, PAPI_L1_ICA, PAPI_L2_ICA};
 //int data_events[eventsize]={PAPI_L1_DCM, PAPI_L2_DCM, PAPI_L2_DCA};
 //int accesses_events[eventsize]={PAPI_TOT_INS,PAPI_L2_ICA,PAPI_L2_DCA};
-char ** inst_eventnames_3={"L1_ICM", "L2_ICM","L2_ICA"};
-char ** inst_eventnames_4={"L1_ICM", "L2_ICM","L1_ICA","L2_ICA"};
+char * inst_eventnames_3[3]={"L1_ICM", "L2_ICM","L2_ICA"};
+char * inst_eventnames_4[4]={"L1_ICM", "L2_ICM","L1_ICA","L2_ICA"};
 //char * data_eventnames[eventsize]={"L1_DCM", "L2_DCM","L2_DCA";
 //char * accesses_eventnames[eventsize]={"TOT_INST","L2_ICA","L2_DCA"};
 

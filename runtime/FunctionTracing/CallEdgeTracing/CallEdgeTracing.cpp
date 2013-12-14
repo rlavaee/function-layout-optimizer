@@ -132,6 +132,7 @@ void do_exit(){
 	print_optimal_layout();
 	FILE * cg_file=fopen("graph.cgc","w");
 	cg_edges.serialize(CGSerializer(),cg_file);
+	//fprintf(stderr,"sent to file\n");
 	fclose(cg_file);
 }
 

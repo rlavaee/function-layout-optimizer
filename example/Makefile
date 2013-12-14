@@ -5,13 +5,22 @@ CGC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcall_edge_tracing_rt.a
 CGC_LLVM_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMCallEdgeTracing.so
 ABC_LLVM_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMCallSiteTracing.so
 REORDER_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMFunctionReordering.so
+ICC_LLVM_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMCacheCounting.so
+ICC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcache_counting_rt.a
+LIBPAPI=$(HOME)/usr/local/lib/libpapi.a
 BITCODED = $(PROG).bc
 COMPILED = $(PROG).out
 ABC_TR	= $(PROG).abc_tr.out
 ABC_OUT	= $(PROG).abc.out
+ICC_OUT = $(PROG).icc.out
 
 CGC_OUT = $(PROG).cgc.out
 CGC_TR = $(PROG).cgc_tr.out
+
+$(ICC_OUT): $(BITCODED)
+	opt -load $(ICC_LLVM_LIB) -add-inst-cache-counters $< <$(BITCODED)> $@.bc
+	llc $@.bc -o $@.s
+	gcc $@.s $(ICC_RT_LIB) $(LIBPAPI) -o $@ 
 
 $(CGC_OUT): layout.cgc $(BITCODED)
 	opt -load $(REORDER_LIB) -rlavaee-reorder-functions -layout $< <$(BITCODED)> $@.bc
