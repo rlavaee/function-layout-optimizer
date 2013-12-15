@@ -1497,7 +1497,7 @@ dnl List every Makefile that exists within your source tree
 AC_CONFIG_MAKEFILE(Makefile)
 AC_CONFIG_MAKEFILE(lib/Makefile)
 AC_CONFIG_MAKEFILE(lib/FunctionReordering/Makefile)
-AC_CONIG_MAKEFILE(lib/Tracing/Makefile)
+AC_CONFIG_MAKEFILE(lib/Tracing/Makefile)
 AC_CONIG_MAKEFILE(lib/FunctionTracing/CallEdgeTracing/Makefile)
 AC_CONIG_MAKEFILE(lib/FunctionTracing/CallSiteTracing/Makefile)
 AC_CONFIG_MAKEFILE(runtime/Makefile)
