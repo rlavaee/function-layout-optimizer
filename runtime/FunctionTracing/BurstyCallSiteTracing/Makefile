@@ -9,7 +9,7 @@
 
 LEVEL = ../../..
 
-LIBRARYNAME = burst_call_site_tracing_rt
+LIBRARYNAME = bursty_call_site_tracing_rt
 LINK_LIBS_IN_SHARED = 1
 SHARED_LIBRARY = 1
 

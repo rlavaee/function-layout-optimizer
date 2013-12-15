@@ -5,6 +5,7 @@
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include <cstdio>
 using namespace llvm;
 
 namespace {
@@ -23,6 +24,25 @@ namespace {
 
 char BasicBlockTracer::ID = 0;
 static RegisterPass<BasicBlockTracer> X("trace-call-sites","Insert instrumentation for basic block tracing", false, false);
+
+namespace {
+  class BurstyCallSiteTracer : public ModulePass {
+    bool runOnModule(Module &M);
+  public:
+    static char ID;
+    BurstyCallSiteTracer(): ModulePass(ID){}
+
+    virtual const char * getPassName() const{
+      return "Bursty Call Site Tracer";
+    }
+  };
+  
+}
+
+char BurstyCallSiteTracer::ID = 0;
+static RegisterPass<BurstyCallSiteTracer> Y("bursty-trace-call-sites","Insert instrumentation for basic block tracing", false, false);
+
+
 
 void InsertInstrumentationCall(Instruction *II,
 			       const char *FnName,
@@ -170,6 +190,72 @@ bool BasicBlockTracer::runOnModule(Module &M) {
 
   // Add the initialization call to main.
   InsertCodeAnalysisInitCall(Main,"start_call_site_tracing", FuncNumber); 
+  return true;
+}
+
+bool BurstyCallSiteTracer::runOnModule(Module &M) {
+  Function *Main = M.getFunction("main");
+  if (Main == 0) {
+    errs() << "WARNING: cannot insert basic-block trace instrumentatiom "
+	   << "into a module with no main function!\n";
+    return false;  // No main, no instrumentation!
+  }
+
+
+  unsigned BBNumber = 0;
+  short FuncNumber = 0;
+  FILE * funcMapFile=fopen("functionMapping.txt","w");
+  for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F){
+    
+    if(!F->isDeclaration()){
+	if(!F->isVarArg()){
+      fprintf(funcMapFile,"%s\t%d\n",F->getName().data(),FuncNumber);
+      //Clone the function
+      ValueToValueMapTy mapTy;
+      mapTy.clear();
+      Function * prof_F = CloneFunction(F,mapTy,false);
+
+      //Set the name of the profiling function
+      prof_F->setName("_prof_" + F->getName());
+	//Set calling convention equal to the original's calling convention
+	//prof_F->setCallingConv(F->getCallingConv());
+	prof_F->setAttributes(F->getAttributes());
+        prof_F->setLinkage(F->getLinkage());
+	//prof_F->addFnAttr(llvm::Attribute::AlwaysInline);
+      //insert instrumented copy of the function at the beginning
+	
+
+      M.getFunctionList().push_front(prof_F);
+      InsertInstrumentationCall (prof_F->begin(), "llvm_trace_basic_block", FuncNumber, BBNumber);
+      for (Function::iterator BB = prof_F->begin(), E = prof_F->end(); BB != E; ++BB) {
+	for (BasicBlock::iterator II = BB->begin(), E= BB->end(); II != E; ++II){
+	  CallSite CS(cast<Value>(II));
+	  if (CS) {
+	    const Function *Callee = CS.getCalledFunction();
+	    //	    errs() << Callee->getName() <<" "<< Callee->isDeclaration() << "\n";
+	    if (Callee && !Callee->isDeclaration()){
+	      ++II;
+	      if(II!=E)
+		InsertInstrumentationCall(II, "llvm_trace_basic_block", FuncNumber, BBNumber);
+	      --II;
+	    }
+	  }
+	}
+	++BBNumber;
+      }
+      
+
+
+      InsertSwitchCall(F,prof_F, FuncNumber);
+	}
+      ++FuncNumber;
+    }
+  }
+  fclose(funcMapFile);
+
+
+  // Add the initialization call to main.
+  InsertCodeAnalysisInitCall(Main,"llvm_init_affinity_analysis", FuncNumber); 
   return true;
 }
 

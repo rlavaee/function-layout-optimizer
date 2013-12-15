@@ -89,7 +89,7 @@ disjointSet *** sets;
 short prevFunc;
 FILE * graphFile, * debugFile;
 
-const char * version_str=".abc";
+const char * version_str=".babc";
 
 
 //pthread_mutex_t trace_list_queue_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -215,8 +215,8 @@ void find_affinity_groups(){
       }
   }
 
-  read_affinity_from_file("affinity.out");
-  save_affinity_into_file("affinity.out");
+  read_affinity_from_file("graph.babc");
+  save_affinity_into_file("graph.babc");
 
   short freqlevel=0;
   float rel_freq_threshold=1.0;

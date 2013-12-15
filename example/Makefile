@@ -12,10 +12,15 @@ BITCODED = $(PROG).bc
 COMPILED = $(PROG).out
 ABC_TR	= $(PROG).abc_tr.out
 ABC_OUT	= $(PROG).abc.out
+BABC_OUT = $(PROG).babc.out
 ICC_OUT = $(PROG).icc.out
 
 CGC_OUT = $(PROG).cgc.out
 CGC_TR = $(PROG).cgc_tr.out
+
+
+$(BABC_OUT): $(BITCODED)
+	opt -load $(BABC_LLVM_LIB) 
 
 $(ICC_OUT): $(BITCODED)
 	opt -load $(ICC_LLVM_LIB) -add-inst-cache-counters $< <$(BITCODED)> $@.bc
