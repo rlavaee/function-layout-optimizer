@@ -8,12 +8,36 @@
 
 using namespace std;
 
-short totalFuncs;
-CGMap cg_edges;
+CGMap * cg_edges;
+
+
+void read_graph(){
+		FILE * graphFile=fopen("graph.cgc","r");
+  	if(graphFile!=NULL){
+			short u1,u2;
+    	int freq;
+    	while(fscanf(graphFile,"%hd",&u1)!=EOF){
+				fscanf(graphFile,"%hd\t%d",&u2,&freq);
+				(*cg_edges)[make_pair(u1,u2)]=freq;
+			}
+			fclose(graphFile);
+		}
+}
+
+
+void write_graph(){
+	FILE * graphFile=fopen("graph.cgc","w");
+	CGMap::iterator iter;
+	for(iter=cg_edges->begin(); iter!=cg_edges->end(); ++iter){
+		fprintf(graphFile,"%hd %hd\t%d\n",iter->first.first,iter->first.second,iter->second);
+	}
+	fclose(graphFile);
+}
+
+
 
 //disjointSet ** sets;
 
-FILE * graphFile, * debugFile;
 
 const char * version_str=".cgc";
 
@@ -33,7 +57,7 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
 		delete mergee;
 }
 
-
+/*
 struct CGSerializer {
   bool operator()(FILE * fp, const std::pair< pair<short,short>, int>& value) const{
   	if((fwrite(&value.first.first, sizeof(value.first.first), 1, fp) != 1) || (fwrite(&value.first.second, sizeof(value.first.second), 1, fp)!=1) )
@@ -53,17 +77,19 @@ struct CGSerializer {
 	return true;
   }
 };
-  
+ */
 
 extern "C" void trace_call_edge(short caller, short callee){		
+	if(cg_edges==NULL)
+		return;
 	if(caller!=callee){
-            pair<short,short> call_entry(caller, callee);
+            pair<short,short> call_entry = make_pair(caller, callee);
 
-            CGMap::iterator  result=cg_edges.find(call_entry);
-            if(result==cg_edges.end())
-              cg_edges[call_entry]= 1;
+            CGMap::iterator  result=cg_edges->find(call_entry);
+            if(result==cg_edges->end())
+              (*cg_edges)[call_entry]= 1;
             else
-              cg_edges[call_entry]++;
+              (*cg_edges)[call_entry]++;
 			//fprintf(stderr,"the result is %d\n",cg_edges[call_entry]);
           }
 }
@@ -103,22 +129,22 @@ void print_optimal_layout(){
 void find_optimal_layout(){
   CGMap::iterator iter;
 
-  //fprintf(stderr,"size is %d\n",cg_edges.size());
+  //fprintf(stderr,"size is %d\n",cg_edges->size());
 
-  CGE * all_cg_edges = new CGE[cg_edges.size()];
+  CGE * all_cg_edges = new CGE[cg_edges->size()];
   int count=0;
-  for(iter=cg_edges.begin(); iter!=cg_edges.end(); ++iter){
+  for(iter=cg_edges->begin(); iter!=cg_edges->end(); ++iter){
  		all_cg_edges[count++]=*iter;
 		//fprintf(stderr,"(%d,%d) -> %d\n",iter->first.first,iter->first.second, iter->second);
   }
 
-	qsort(all_cg_edges,cg_edges.size(),sizeof(CGE),CGECmp);
+	qsort(all_cg_edges,cg_edges->size(),sizeof(CGE),CGECmp);
 
 	disjointSet::sets = new disjointSet *[totalFuncs];
 	for(short i=0; i<totalFuncs; ++i)
 		disjointSet::init_new_set(i);
 
-	for(size_t cge=0; cge< cg_edges.size(); ++cge){
+	for(size_t cge=0; cge< cg_edges->size(); ++cge){
 		//printf("considering edge (%d,%d) -> %d\n",all_cg_edges[cge].first.first,all_cg_edges[cge].first.second, all_cg_edges[cge].second);
 		disjointSet::mergeSets(all_cg_edges[cge].first.first,all_cg_edges[cge].first.second);
 	}
@@ -130,20 +156,23 @@ void find_optimal_layout(){
 void do_exit(){
 	find_optimal_layout();
 	print_optimal_layout();
-	FILE * cg_file=fopen("graph.cgc","w");
-	cg_edges.serialize(CGSerializer(),cg_file);
+	write_graph();
+	//cg_edges->serialize(CGSerializer(),cg_file);
 	//fprintf(stderr,"sent to file\n");
-	fclose(cg_file);
+	//fclose(cg_file);
 }
 
 
 extern "C" void do_init(short _totalFuncs){
+	cg_edges = new CGMap();
 	totalFuncs=_totalFuncs;
-	FILE * cg_file=fopen("graph.cgc","r");
-	if(cg_file){
-		cg_edges.unserialize(CGSerializer(),cg_file);
-		fclose(cg_file);
-	}
+	read_graph();
+
+	//FILE * cg_file=fopen("graph.cgc","r");
+	//if(cg_file){
+	//	cg_edges->unserialize(CGSerializer(),cg_file);
+	//	fclose(cg_file);
+	//}
 	atexit(do_exit);
 }
 

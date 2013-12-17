@@ -1,9 +1,22 @@
-#include <google/sparse_hash_map>
+//#include <google/sparse_hash_map>
+#include <tr1/unordered_map>
 #include <boost/functional/hash.hpp>
 
-using google::sparse_hash_map;
+//using google::sparse_hash_map;
+short totalFuncs;
 
 typedef std::pair<short,short> shortpair;
+
+
+struct shortpair_hash{
+  size_t operator()(const shortpair& s) const{
+	    return std::tr1::hash<short>()(totalFuncs*s.first + s.second);
+	}
+};
+
+shortpair make_pair(short s1,short s2){
+	return (s1<s2)?(shortpair(s1,s2)):(shortpair(s2,s2));
+}
 struct eqshortpair{
 	bool operator()(shortpair s1, shortpair s2) const {
 		if ((s1.first == s2.first) && (s1.second == s2.second))
@@ -14,7 +27,7 @@ struct eqshortpair{
 	}
 };
 
-typedef sparse_hash_map< shortpair, int, boost::hash<shortpair>, eqshortpair> CGMap;
+typedef std::tr1::unordered_map < shortpair, int, shortpair_hash, eqshortpair> CGMap;
 typedef std::pair< shortpair, int> CGE;
 
 struct disjointSet {

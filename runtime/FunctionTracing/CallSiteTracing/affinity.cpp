@@ -360,6 +360,8 @@ void print_trace(list<SampledWindow> * tlist){
 
 
 void sample_window(short FuncNum){
+	if(affEntries==NULL)
+		return;
 
   //printf("trace_list is:\n");
   //print_trace(&trace_list);
