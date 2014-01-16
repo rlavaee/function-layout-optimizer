@@ -11,13 +11,13 @@ using namespace llvm;
 cl::opt<uint8_t>
 AvailCounters("avail-counters",
                  cl::desc("Number of available hardware counters"),
-                 cl::init(3), cl::Hidden);
+                 cl::init(4), cl::Hidden);
 
 void InsertInitCacheCountersCall(Function * MainFn, const char *FnName){
-  LLVMContext &Context = MainFn->getContext();
+  Module *M = MainFn->getParent();
+  LLVMContext &Context = M->getContext();
   Type *VoidTy = Type::getVoidTy(Context);
   Type *UCharTy = Type::getInt16Ty(Context);
-  Module *M = MainFn->getParent();
   Constant *InitFn = M->getOrInsertFunction(FnName, VoidTy,
 																						UCharTy,
                                            (Type *)0);	

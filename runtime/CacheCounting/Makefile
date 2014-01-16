@@ -16,7 +16,7 @@ SHARED_LIBRARY = 1
 # Build and install this archive.                                                                                                                  
 BUILD_ARCHIVE = 1
 override NO_INSTALL_ARCHIVES =
-
+CFLAGS=-I $(HOME)/usr/include
 #LFLAGS= $(LIBPAPI)
 
 include $(LEVEL)/Makefile.common

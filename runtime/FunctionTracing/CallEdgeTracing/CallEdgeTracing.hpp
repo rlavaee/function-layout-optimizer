@@ -1,12 +1,14 @@
 //#include <google/sparse_hash_map>
 #include <tr1/unordered_map>
 #include <boost/functional/hash.hpp>
+#include <deque>
 
 //using google::sparse_hash_map;
 short totalFuncs;
 
 typedef std::pair<short,short> shortpair;
 
+bool CGECmp(const shortpair&, const shortpair&);
 
 struct shortpair_hash{
   size_t operator()(const shortpair& s) const{
@@ -32,7 +34,7 @@ typedef std::pair< shortpair, int> CGE;
 
 struct disjointSet {
 	static disjointSet ** sets;
-	std::vector<short> elements;
+	std::deque<short> elements;
 	size_t size(){ return elements.size();}
 	static void mergeSets(disjointSet *, disjointSet *);
 	static void mergeSets(short id1, short id2){
@@ -50,10 +52,4 @@ struct disjointSet {
 disjointSet ** disjointSet::sets = 0;
 
 
-int CGECmp(const void * left, const void * right){
-	const CGE * cge_left = (const CGE *) left;
-	const CGE * cge_right = (const CGE *) right;
-	
-	return cge_left->second - cge_right->second;
-}
 
