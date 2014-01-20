@@ -8,7 +8,6 @@
 #include <vector>
 #define MAXTHREADS 100
 
-const long MAXNUM=(long)1000000*1000000;
 long long added_lists=0;
 long long removed_lists[MAXTHREADS];
 pthread_t consumers[MAXTHREADS];
@@ -17,9 +16,11 @@ long nconsumers;
 
 short totalFuncs, maxWindowSize;
 int memoryLimit;
-int sampledWindows;
+//long sampledWindows;
 unsigned totalBBs;
-float sampleRate;
+int sampleRate;
+int sampleSize;
+int sampleMask;
 short maxFreqLevel;
 int level_pid, version_pid;
 ProfilingLevel pLevel;
@@ -71,17 +72,16 @@ extern "C" void record_function_exec(short FuncNum){
 		return;
 
   //printf("trace_list is:\n");
-  //print_trace(&trace_list);
 	
 	if(prevFunc==FuncNum)
 		return;
 	else
 		prevFunc=FuncNum;
 
-  int r=rand()%MAXNUM;
+  int r=rand();
 	bool sampled=false;
-  if(r < sampleRate*MAXNUM){
-    sampledWindows++;
+  if((r & sampleMask)==0){
+    //sampledWindows++;
     SampledWindow sw;
     sw.wcount=1;
     trace_list.push_front(sw);
@@ -242,11 +242,11 @@ void print_optimal_layout(){
 		}
 	}
 
-  char * layoutFilePath = (char *) malloc(strlen("layout")+strlen(version_str)+1);
-  strcpy(layoutFilePath,"layout");
-  strcat(layoutFilePath,version_str);
-
-  FILE *layoutFile = fopen(layoutFilePath,"w");  
+	char affinityFilePath[80];
+	strcpy(affinityFilePath,"layout_");
+	strcat(affinityFilePath,(affEntryCmp==affEntry1DCmp)?("1D"):("2D"));
+	strcat(affinityFilePath,version_str);
+  FILE *layoutFile = fopen(affinityFilePath,"w");  
 
   for(int i=0;i<totalFuncs;++i){
     if(i%20==0)
@@ -295,7 +295,7 @@ void print_optimal_layouts(){
 void initialize_affinity_data(){
 
   prevFunc=-1;
-  sampledWindows=0;
+  //sampledWindows=0;
 	nconsumers=0;
   trace_list_size=0;
 
@@ -381,11 +381,11 @@ void aggregate_affinity(){
   strcat(graphFilePath,version_str);
 
   graphFile=fopen(graphFilePath,"r");
-  int prev_sampledWindows=0;
+  //int prev_sampledWindows=0;
   if(graphFile!=NULL){
     short u1,u2,wsize;
 		int freq;
-    fscanf(graphFile,"%d",&prev_sampledWindows);
+    //fscanf(graphFile,"%d",&prev_sampledWindows);
     while(fscanf(graphFile,"%hd",&wsize)!=EOF){
       while(true){
         fscanf(graphFile,"%hd",&u1);
@@ -419,8 +419,8 @@ void aggregate_affinity(){
 
 
   graphFile=fopen(graphFilePath,"w+");
-  sampledWindows+=prev_sampledWindows;
-  fprintf(graphFile,"%u\n",sampledWindows);
+  //sampledWindows+=prev_sampledWindows;
+  //fprintf(graphFile,"%ld\n",sampledWindows);
 
   for(short wsize=1;wsize<=maxWindowSize;++wsize){
 
@@ -499,8 +499,12 @@ void affinityAtExitHandler(){
 	//for(int i=0;i<9;++i){
 
 		//maxWindowSize=maxWindowSizeArray[i];
+		affEntryCmp=affEntry1DCmp;
 		find_affinity_groups();
+  	print_optimal_layout();
 
+		affEntryCmp=affEntry2DCmp;
+		find_affinity_groups();
   	print_optimal_layout();
 		//print_optimal_layouts();
 	//}
@@ -625,6 +629,7 @@ void * update_affinity(void * threadno_void){
               wsize+=window_iter->partial_trace_list.size();
               //printf("wsize is %d\n",wsize);
               freq_array[wsize]+=window_iter->wcount;
+              //freq_array[wsize]++;
               //fprintf(stderr,"%d \t %d\n",wsize,freq_array[wsize]);
               window_iter++;
             }
@@ -636,6 +641,7 @@ void * update_affinity(void * threadno_void){
         top_wsize+=top_window_iter->partial_trace_list.size();
       	//fprintf(stderr,"\t\ttop_wsize reaching to maximum %d\n",top_wsize);
         freqs[threadno][FuncNum][top_wsize]+=top_window_iter->wcount;
+        //freqs[threadno][FuncNum][top_wsize]++;
         top_window_iter++;
 
       } 
@@ -661,8 +667,47 @@ SampledWindow::SampledWindow(){
 }
 
 SampledWindow::~SampledWindow(){}
+bool affEntry1DCmp(affEntry ae_left, affEntry ae_right){
 
-bool affEntryCmp(affEntry ae_left, affEntry ae_right){
+	int * jointFreq_left = (*sum_affEntries)[ae_left];
+	int * jointFreq_right = (*sum_affEntries)[ae_right];
+	if(jointFreq_left == NULL && jointFreq_right != NULL)
+		return false;
+	if(jointFreq_left != NULL && jointFreq_right == NULL)
+		return true;
+	
+	if(jointFreq_left != NULL){
+	int ae_left_val, ae_right_val;
+	
+	float rel_freq_threshold=2.0;
+    for(short wsize=2;wsize<=maxWindowSize;++wsize){
+			
+        if((rel_freq_threshold*(jointFreq_left[wsize]) >= sum_freqs[ae_left.first][wsize]) && 
+            (rel_freq_threshold*(jointFreq_left[wsize]) >= sum_freqs[ae_left.second][wsize]))
+					ae_left_val = 1;
+				else
+					ae_left_val = -1;
+
+				if((rel_freq_threshold*(jointFreq_right[wsize]) >= sum_freqs[ae_right.first][wsize]) && 
+            (rel_freq_threshold*(jointFreq_right[wsize]) >= sum_freqs[ae_right.second][wsize]))
+					ae_right_val = 1;
+				else
+					ae_right_val = -1;
+
+				if(ae_left_val != ae_right_val)
+					return (ae_left_val > ae_right_val);
+    }
+	}
+
+	if(ae_left.first != ae_right.first)
+		return (ae_left.first > ae_right.first);
+	
+	return ae_left.second > ae_right.second;
+
+}
+
+
+bool affEntry2DCmp(affEntry ae_left, affEntry ae_right){
 
 	int * jointFreq_left = (*sum_affEntries)[ae_left];
 	int * jointFreq_right = (*sum_affEntries)[ae_right];
@@ -857,7 +902,9 @@ static void save_affinity_environment_variables(void) {
   }
 
   if ((SampleRateEnvVar = getenv("SAMPLE_RATE")) != NULL) {
-    sampleRate = (float)strtod(SampleRateEnvVar,NULL);
+    sampleRate = atoi(SampleRateEnvVar);
+		sampleSize= RAND_MAX >> sampleRate;
+		sampleMask = sampleSize ^ RAND_MAX;
   }
 
   if((MaxWindowSizeEnvVar = getenv("MAX_WINDOW_SIZE")) != NULL){

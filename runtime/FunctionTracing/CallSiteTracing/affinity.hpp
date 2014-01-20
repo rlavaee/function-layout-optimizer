@@ -67,7 +67,6 @@ struct disjointSet {
 disjointSet ** disjointSet::sets = 0;
 
 
-
 struct SampledWindow{
   int wcount;
   std::list<short> partial_trace_list;
@@ -80,7 +79,10 @@ void print_trace(std::list<SampledWindow> *);
 void initialize_affinity_data(float,short,short,short);
 void * update_affinity(void *);
 void affinityAtExitHandler();
-bool affEntryCmp(const affEntry, const affEntry);
+//bool affEntryCmp(const affEntry, const affEntry);
+bool (*affEntryCmp)(const affEntry, const affEntry);
+bool affEntry1DCmp(const affEntry, const affEntry);
+bool affEntry2DCmp(const affEntry, const affEntry);
 //void record_function_exec(short);
 
 
