@@ -8,14 +8,13 @@ The instrumented program will then be used during the development stage and it w
 LLVM Libraries
 --------------
 The library code used to process affinity information and release optimized code layout is located in 
-"lib/FunctionTracing". The instrumentations of this pass require runtime functions which are located in 
-"runtime/FunctionTracing".
+"lib/FunctionTracing/CallSiteTracing". The instrumentations of this pass require runtime functions which are located in "runtime/FunctionTracing/CallSiteTracing".
 
 The library code used to change the code layout is located in "lib/FunctionReordering".
 
 Test code
 ---------
-The test code and instructions on how to run the test is located in "test".
+The example test code and instructions on how to run the test is located in "example".
 
 Requirements
 ============
@@ -33,20 +32,17 @@ To build the tool, run
 
     $ make
   
-To run the test, go into the "test" directory and run
+To run the test, go into the "example" directory and run
 
-    $ make test.tracer
+    $ make prog.abc_tr.out
   
-This will generate the instrumented program as the executable "test.tracer".
+This will generate the instrumented program as the executable "prog.abc_tr.out".
 To run the instrumented program, make sure that the environment variables 
-SAMPLE_RATE, TOTAL_FUNCS, MAX_WINDOW_SIZE, and MAX_FREQ_LEVEL are set appropriately.
+SAMPLE_RATE, MAX_WINDOW_SIZE, and MAX_FREQ_LEVEL, MEMORY_LIMIT are set appropriately.
 
 SAMPLE_RATE determines the rate at which windows are sampled. The closer to one this rate is set, the 
 more accurate affinity information will be obtained. However, the performance linearly depends on this rate too.
 However, since the current test program goes over small number of instruction, you can set it to 1.
-
-TOTAL_FUNCS needs to be set to a value which is at least equal to the number of functions 
-in the program. The total number of functions for this test is 3.
 
 MAX_WINDOW_SIZE controls the maximum size each sampled window can grow up to. The performance 
 of the algorithm at worst case depends quadratically with this size, though in practice it is better than that.
@@ -55,14 +51,15 @@ For this test you can set it to 3.
 MAX_FREQ_LEVEL controls the granularity of the analysis. The larger value it is set to, the more accurate information
 will be obtained. For this test case, you can set it to 10.
 
+MEMORY_LIMIT (in bytes) bounds the size of the profiling runtime memory. Set it according to your memory limit.
+
 Then simply run
 
-    $ ./test.tracer
+    $ ./prog.abc_tr.out
   
 This will generate the new code layout in the file named "layout.abc".
-To change the code layout based on this file, the environment variable PERM_FILE needs to be set to this file.
 Then run
 
-    $ make test.reordered
+    $ make prog.abc.out
   
-This will generate the new executable test.reordered which conforms to the code layout in "layout.abc".
+This will generate the new executable prog.abc.out which conforms to the code layout in "layout.abc".
