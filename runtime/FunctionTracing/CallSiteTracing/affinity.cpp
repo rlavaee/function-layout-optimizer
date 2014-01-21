@@ -22,12 +22,14 @@ int sampleRate;
 int sampleSize;
 int sampleMask;
 short maxFreqLevel;
-int level_pid, version_pid;
-ProfilingLevel pLevel;
 
 affinityHashMap * affEntries[MAXTHREADS];
 affinityHashMap * sum_affEntries;
 std::list<SampledWindow> trace_list;
+
+WindowRelocationHashMap windowRelocationTable;
+WindowValidityHashMap windowValidityTable;
+std::list< ContainerWindow> * container_windows;
 
 bool * contains_func;
 std::list<short>::iterator * func_trace_it;
@@ -85,18 +87,23 @@ extern "C" void record_function_exec(short FuncNum){
     SampledWindow sw;
     sw.wcount=1;
     trace_list.push_front(sw);
+		windowValidityTable[trace_list.begin()]=1;
 		sampled=true;
   }
 
   //if(!trace_list.empty())
 
-	if(trace_list_size!=0 || sampled)
+	if(trace_list_size!=0 || sampled){
     trace_list.front().partial_trace_list.push_front(FuncNum);
+		freqs[0][FuncNum][trace_list.front().wsize]+=1;
+	}
   else
     return;
 
 	//print_trace(&trace_list);
 
+	std::list<SampledWindow>::iter
+	for(
 
   if(!contains_func[FuncNum]){
     //printf("found FuncNum:%d in trace\n",FuncNum);
@@ -112,7 +119,8 @@ extern "C" void record_function_exec(short FuncNum){
         last_window_trace_list->pop_front();
       }
       //last_window_iter->partial_trace_list.clear();
-
+			windowValidityTable[trace_list.end()]=-1;
+			windowRelocationTable.erase(trace_list.end());
       trace_list.pop_back();
     }
     
@@ -133,6 +141,7 @@ extern "C" void record_function_exec(short FuncNum){
 			//printf("a new update window list\n");
 			//print_trace(trace_list_to_update);
 			push_into_update_queue(trace_list_to_update);
+			container_windows[FuncNum].push_front(ContainerWindow(trace_list.begin()));
 		}
     /*tl_window_iter=trace_list.begin();
     while(tl_window_iter != func_window_it[FuncNum]){
@@ -144,8 +153,13 @@ extern "C" void record_function_exec(short FuncNum){
     	tl_window_iter->partial_trace_list.erase(func_trace_it[FuncNum]);
 
     	if(tl_window_iter->partial_trace_list.empty()){
+				std::list<SampledWindow>::iterator empty_window_iter = tl_window_iter;
       	int temp_wcount=tl_window_iter->wcount;
       	tl_window_iter--;
+
+				windowValidityTable[empty_window_iter]=0;
+				windowRelocationTable[empty_window_iter] = tl_window_iter;
+
       	tl_window_iter->wcount+=temp_wcount;
       	tl_window_iter++;
       	trace_list.erase(tl_window_iter);
@@ -314,6 +328,8 @@ void initialize_affinity_data(){
   //unordered_map <const affEntry, int *, affEntry_hash, eqAffEntry>();
 
   //  affEntries->set_empty_key(empty_entry);
+	
+	container_windows = new std::list<ContainerWindow> [totalFuncs];
 
 
   //for(i=0;i<totalFuncs;++i)
@@ -553,6 +569,91 @@ void print_trace(list<SampledWindow> * tlist){
 }
 
 
+std::list<SampledWindow>::iterator& get_valid_window(std::list<SampledWindow>::iterator &iter, short funcNum){
+	if(windowValidityTable[iter]==1)
+		return iter;
+	else{
+		assert(windowValidityTable[iter]==0);
+		return (windowRelocationTable[iter]=get_valid_window(windowRelocationTable[iter],funcNum));
+	}
+}
+std::list<SampledWindow>::iterator top_window_iter;
+std::list<SampledWindow>::iterator window_iter;
+std::list<short>::iterator trace_iter;
+std::list<short>::iterator partial_trace_list_end;
+
+
+void sequential_update_affinity(std::list<SampledWindow>::iterator trace_list_front_end){
+			long threadno = 0;
+	    top_window_iter = trace_list.begin();
+      trace_iter = top_window_iter->partial_trace_list.begin();
+
+
+      short FuncNum= *trace_iter;
+
+      while(top_window_iter!= trace_list_front_end){
+        trace_iter = top_window_iter->partial_trace_list.begin();
+
+          
+        partial_trace_list_end = top_window_iter->partial_trace_list.end();
+        while(trace_iter != partial_trace_list_end){
+
+          short FuncNum2= *trace_iter;
+          
+          if(FuncNum2!=FuncNum){
+            affEntry trace_entry(FuncNum, FuncNum2);
+            int * freq_array;
+
+            affinityHashMap::iterator  result=affEntries[threadno]->find(trace_entry);
+            if(result==affEntries[threadno]->end())
+              (*affEntries[threadno])[trace_entry]= freq_array=new int[maxWindowSize+1]();
+            else
+              freq_array=result->second;
+
+						std::list<ContainerWindow>::iterator container_window_iter = container_windows[FuncNum2].begin();
+						std::list<ContainerWindow>::iterator container_window_iter_end = container_windows[FuncNum2].end();
+						std::list<SampledWindow>::iterator valid_sampled_window_iter;
+						std::list<SampledWindow>::iterator prev_sampled_window_iter;
+
+						while(container_window_iter != container_window_iter_end){
+ 							if(windowValidityTable[container_window_iter->it]==-1)
+								container_window_iter = container_windows[FuncNum2].erase(container_window_iter);
+							else{
+								valid_sampled_window_iter = get_valid_window(container_window_iter->it,FuncNum2);
+								int wcount = container_window_iter->count;
+								freq_array[valid_sampled_window_iter->wsize]+= wcount;
+								if(valid_sampled_window_iter != container_window_iter->it)
+									container_window_iter->it = valid_sampled_window_iter;
+
+								if(valid_sampled_window_iter == prev_sampled_window_iter){
+									container_window_iter--;
+									container_window_iter->count += wcount;
+									prev_sampled_window_iter = container_window_iter->it;
+									container_window_iter++;
+									container_window_iter = container_windows[FuncNum2].erase(container_window_iter);
+								}
+								else{
+									prev_sampled_window_iter = container_window_iter->it;
+									container_window_iter++;
+								}
+
+							}
+						}
+						
+          }
+
+          trace_iter++;
+        }
+
+        top_wsize+=top_window_iter->partial_trace_list.size();
+      	//fprintf(stderr,"\t\ttop_wsize reaching to maximum %d\n",top_wsize);
+        //freqs[threadno][FuncNum][top_wsize]++;
+        top_window_iter++;
+			}
+
+}
+
+
 
 
 void * update_affinity(void * threadno_void){
@@ -658,10 +759,12 @@ void * update_affinity(void * threadno_void){
 
 SampledWindow::SampledWindow(const SampledWindow & sw){
   wcount=sw.wcount;
+	wsize = sw.wisze;
   partial_trace_list = std::list<short>(sw.partial_trace_list);
 }
 
 SampledWindow::SampledWindow(){
+	wsize=0;
   wcount=0;
   partial_trace_list = std::list<short>();
 }

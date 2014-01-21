@@ -28,25 +28,45 @@ struct affEntry_hash{
 //typedef sparse_hash_set <int, hash<int> > intHashSet;
 typedef std::tr1::unordered_map <const affEntry, int *, affEntry_hash, eqAffEntry> affinityHashMap;
 
+struct SampledWindow{
+  int wcount;
+	int wsize;
+  std::list<short> partial_trace_list;
+  SampledWindow(const SampledWindow&);
+  SampledWindow();
+	~SampledWindow();
+};
 
-typedef enum{
-  FuncLevel,
-  BBLevel
-} ProfilingLevel;
+typedef struct SampledWindow SampledWindow;
+
+
+struct list_iterator_hash {
+	size_t operator()(const std::list<SampledWindow>::iterator &it) const {
+		return std::tr1::hash<SampledWindow*>()(&*it);
+	}
+};
 
 /*
-struct disjointSet{
-  unsigned id;
-  unsigned rank;
-  unsigned size;
-  disjointSet * parent;
-  
-  void unionSet(disjointSet*);
-  void initSet(unsigned);
-  disjointSet* find();
-  unsigned getSize();
+struct list_iterator_eq{
+	bool operator()(const std::list<SampledWindow>::iterator &it1, const std::list<SampledWindow>::iterator &it2) const {
+		return (&*it1==&*it2);
+	}
 };
 */
+typedef std::tr1::unordered_map <const std::list<SampledWindow>::iterator, std::list<SampledWindow>::iterator, list_iterator_hash> WindowRelocationHashMap;
+
+typedef std::tr1::unordered_map <const std::list<SampledWindow>::iterator, int, list_iterator_hash> WindowValidityHashMap;
+
+
+struct ContainerWindow {
+	std::list<SampledWindow>::iterator it;
+	int count;
+	ContainerWindow(std::list<SampledWindow>::iterator _it){
+		it= _it;
+		count = 1;
+	}
+};
+
 struct disjointSet {
 	static disjointSet ** sets;
 	std::deque<short> elements;
@@ -66,14 +86,6 @@ struct disjointSet {
 
 disjointSet ** disjointSet::sets = 0;
 
-
-struct SampledWindow{
-  int wcount;
-  std::list<short> partial_trace_list;
-  SampledWindow(const SampledWindow&);
-  SampledWindow();
-	~SampledWindow();
-};
 
 void print_trace(std::list<SampledWindow> *);
 void initialize_affinity_data(float,short,short,short);
