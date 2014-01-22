@@ -21,11 +21,26 @@ struct affEntry{
 	bool operator== (const affEntry&) const;
 };
 */
+shortpair make_pair(short s1,short s2){
+	return (s1<s2)?(shortpair(s1,s2)):(shortpair(s2,s1));
+}
+struct eqshortpair{
+	bool operator()(shortpair s1, shortpair s2) const {
+		if ((s1.first == s2.first) && (s1.second == s2.second))
+			return true;
+		if ((s1.second == s2.first) && (s1.first == s2.second))
+			return true;
+		return false;
+	}
+};
+
 
 struct shortpair_hash{
   size_t operator()(const shortpair& s) const{
-            return std::tr1::hash<short>()(totalFuncs*s.first + s.second);
-        }
+		short smaller=(s.first<s.second)?(s.first):(s.second);
+		short bigger=(s.first<s.second)?(s.second):(s.first);
+    return std::tr1::hash<short>()(totalFuncs*smaller + bigger);
+  }
 };
 
 /*
@@ -36,15 +51,17 @@ struct shortpair_eq{
 };
 */
 
-typedef std::tr1::unordered_map <const shortpair, int *, shortpair_hash> JointFreqMap;
-typedef std::tr1::unordered_map <const shortpair, int **, shortpair_hash> JointFreqRangeMap;
+typedef std::tr1::unordered_map <const shortpair, pair<int,int> *, shortpair_hash, eqshortpair> JointFreqMap;
+typedef std::tr1::unordered_map <const shortpair, pair <int,int> **, shortpair_hash, eqshortpair> JointFreqRangeMap;
 
 struct UpdateEntry{
 	short func;
 	int min_wsize;
-	UpdateEntry(short _func, int _min_wsize){
+	bool first_window;
+	UpdateEntry(short _func, int _min_wsize, bool _first_window){
 		func = _func;
 		min_wsize = _min_wsize;
+		first_window = _first_window;
 	}
 };
 
@@ -97,6 +114,6 @@ void affinityAtExitHandler();
 
 
 bool (*affEntryCmp)(const shortpair& pair_left, const shortpair& pair_right);
-bool affEntry1DCmp(const shortpair& pair_left, const shortpair& pair_right);
+//bool affEntry1DCmp(const shortpair& pair_left, const shortpair& pair_right);
 bool affEntry2DCmp(const shortpair& pair_left, const shortpair& pair_right);
 #endif /* AFFINITY_HPP */
