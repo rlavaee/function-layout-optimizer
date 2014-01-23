@@ -8,6 +8,10 @@
 #include <list>
 using namespace std;
 
+typedef pair<short,short> shortpair;
+short totalFuncs;
+
+/*
 struct affEntry{
   short first,second;
   affEntry();
@@ -16,56 +20,51 @@ struct affEntry{
 	affEntry& operator= (const affEntry&);
 	bool operator== (const affEntry&) const;
 };
-
-struct eqAffEntry{
-  bool operator()(affEntry const&,affEntry const&)const; 
-};
-
-struct affEntry_hash{
-  size_t operator()(affEntry const&)const;
-};
-
-//typedef sparse_hash_set <int, hash<int> > intHashSet;
-typedef std::tr1::unordered_map <const affEntry, int *, affEntry_hash, eqAffEntry> affinityHashMap;
-
-struct SampledWindow{
-  int wcount;
-	int wsize;
-  std::list<short> partial_trace_list;
-  SampledWindow(const SampledWindow&);
-  SampledWindow();
-	~SampledWindow();
-};
-
-typedef struct SampledWindow SampledWindow;
-
-
-struct list_iterator_hash {
-	size_t operator()(const std::list<SampledWindow>::iterator &it) const {
-		return std::tr1::hash<SampledWindow*>()(&*it);
+*/
+shortpair make_pair(short s1,short s2){
+	return (s1<s2)?(shortpair(s1,s2)):(shortpair(s2,s1));
+}
+struct eqshortpair{
+	bool operator()(shortpair s1, shortpair s2) const {
+		if ((s1.first == s2.first) && (s1.second == s2.second))
+			return true;
+		if ((s1.second == s2.first) && (s1.first == s2.second))
+			return true;
+		return false;
 	}
+};
+
+
+struct shortpair_hash{
+  size_t operator()(const shortpair& s) const{
+		short smaller=(s.first<s.second)?(s.first):(s.second);
+		short bigger=(s.first<s.second)?(s.second):(s.first);
+    return std::tr1::hash<short>()(totalFuncs*smaller + bigger);
+  }
 };
 
 /*
-struct list_iterator_eq{
-	bool operator()(const std::list<SampledWindow>::iterator &it1, const std::list<SampledWindow>::iterator &it2) const {
-		return (&*it1==&*it2);
+struct shortpair_eq{
+	bool operator()(const shortpair &s1, const shortpair &s2) const{
+		return (s1.first == s2.first) && (s1.second == s2.second);
 	}
 };
 */
-typedef std::tr1::unordered_map <const std::list<SampledWindow>::iterator, std::list<SampledWindow>::iterator, list_iterator_hash> WindowRelocationHashMap;
 
-typedef std::tr1::unordered_map <const std::list<SampledWindow>::iterator, int, list_iterator_hash> WindowValidityHashMap;
+typedef std::tr1::unordered_map <const shortpair, pair<int,int> *, shortpair_hash, eqshortpair> JointFreqMap;
+typedef std::tr1::unordered_map <const shortpair, pair <int,int> **, shortpair_hash, eqshortpair> JointFreqRangeMap;
 
-
-struct ContainerWindow {
-	std::list<SampledWindow>::iterator it;
-	int count;
-	ContainerWindow(std::list<SampledWindow>::iterator _it){
-		it= _it;
-		count = 1;
+struct UpdateEntry{
+	short func;
+	int min_wsize;
+	bool first_window;
+	UpdateEntry(short _func, int _min_wsize, bool _first_window){
+		func = _func;
+		min_wsize = _min_wsize;
+		first_window = _first_window;
 	}
 };
+
 
 struct disjointSet {
 	static disjointSet ** sets;
@@ -87,15 +86,34 @@ struct disjointSet {
 disjointSet ** disjointSet::sets = 0;
 
 
+struct SampledWindow{
+  int wcount;
+  int wsize;
+  std::list<short> partial_trace_list;
+
+  SampledWindow(const SampledWindow & sw){
+    wcount=sw.wcount;
+		wsize= sw.wsize;
+    partial_trace_list = std::list<short>(sw.partial_trace_list);
+  }
+
+  SampledWindow(){
+    wcount=0;
+    wsize=0;
+    partial_trace_list = std::list<short>();
+  }
+	~SampledWindow(){}
+
+};
+
 void print_trace(std::list<SampledWindow> *);
 void initialize_affinity_data(float,short,short,short);
-void * update_affinity(void *);
+//void * update_affinity(void *);
+void sequential_update_affinity(list<SampledWindow>::iterator);
 void affinityAtExitHandler();
-//bool affEntryCmp(const affEntry, const affEntry);
-bool (*affEntryCmp)(const affEntry, const affEntry);
-bool affEntry1DCmp(const affEntry, const affEntry);
-bool affEntry2DCmp(const affEntry, const affEntry);
-//void record_function_exec(short);
 
 
+bool (*affEntryCmp)(const shortpair& pair_left, const shortpair& pair_right);
+//bool affEntry1DCmp(const shortpair& pair_left, const shortpair& pair_right);
+bool affEntry2DCmp(const shortpair& pair_left, const shortpair& pair_right);
 #endif /* AFFINITY_HPP */
