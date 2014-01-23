@@ -92,7 +92,7 @@ extern "C" void record_function_exec(short FuncNum){
   else
     prevFunc=FuncNum;
 
-	fprintf(traceFile,"%hd\n",FuncNum);
+	//fprintf(traceFile,"%hd\n",FuncNum);
   int r=rand();
   bool sampled=false;
   if((r & sampleMask)==0){
@@ -269,28 +269,26 @@ void aggregate_affinity(){
   strcat(graphFilePath,version_str);
 
   graphFile=fopen(graphFilePath,"r");
-  //int prev_sampledWindows=0;
   if(graphFile!=NULL){
     short u1,u2;
 		int sfreq,freq1,freq2;
-    while(fscanf(graphFile,"%hd",&u1)!=EOF){
-			if(u1==-1)
-				break;
+		for(short i=0;i<totalFuncs; ++i){
+			fscanf(graphFile,"(%*hd):");
 			for(short wsize=1; wsize<=maxWindowSize; ++wsize){
-        fscanf(graphFile,"%d",&sfreq);
-        single_freqs[u1][wsize]+=sfreq;
+        fscanf(graphFile,"%d ",&sfreq);
+        single_freqs[i][wsize]+=sfreq;
       }
 		}
-    while(fscanf(graphFile,"%hd",&u1)!=EOF){
-			fscanf(graphFile,"%hd",&u2);
+    while(fscanf(graphFile,"(%hd,%hd):",&u1,&u2)!=EOF){
 			shortpair entryToAdd=make_pair(u1,u2);
       pair<int,int> * freq_array=(*joint_freqs)[entryToAdd];
 			if(freq_array==NULL){
 				freq_array= new pair<int,int>[maxWindowSize+1]();
 				(*joint_freqs)[entryToAdd]=freq_array;
 			}
+			//printf("(%hd,%hd)\n",u1,u2);
 			for(short wsize=1; wsize<=maxWindowSize; ++wsize){
-        fscanf(graphFile,"%d %d",&freq1,&freq2);
+        fscanf(graphFile,"{%d %d} ",&freq1,&freq2);
         freq_array[wsize].first+=freq1;
         freq_array[wsize].second+=freq2;
       }
@@ -307,8 +305,6 @@ void aggregate_affinity(){
 				fprintf(graphFile,"%d ",single_freqs[i][wsize]);
     	fprintf(graphFile,"\n");
 		}
-		fprintf(graphFile,"-1\n");
-
     for(iter=joint_freqs->begin(); iter!=joint_freqs->end(); ++iter){
       fprintf(graphFile,"(%hd,%hd):",iter->first.first,iter->first.second);
 			for(short wsize=1;wsize<=maxWindowSize;++wsize)

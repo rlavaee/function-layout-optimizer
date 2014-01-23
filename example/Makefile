@@ -32,7 +32,7 @@ $(CGC_OUT): layout.cgc $(BITCODED)
 	llc $@.bc -o $@.s
 	gcc $@.s -o $@
 
-$(CGC_TR): $(BITCODED)
+$(CGC_TR): $(BITCODED) $(CGC_RT_LIB)
 	opt -load $(CGC_LLVM_LIB) -trace-call-edges $< -o $@.bc
 	llc $@.bc -o $@.s
 	clang++ $@.s $(CGC_RT_LIB) -o $@ -lpthread
@@ -42,7 +42,7 @@ $(ABC_OUT): layout.abc $(BITCODED)
 	llc $@.bc -o $@.s
 	gcc $@.s -o $@
 
-$(ABC_TR): $(BITCODED)
+$(ABC_TR): $(BITCODED) $(ABC_RT_LIB)
 	opt -load $(ABC_LLVM_LIB) -trace-call-sites $< -o $@.bc
 	llc $@.bc -o $@.s
 	clang++ $@.s $(ABC_RT_LIB) -o $@ -lpthread
