@@ -17,7 +17,7 @@ struct shortpair_hash{
 };
 
 shortpair make_pair(short s1,short s2){
-	return (s1<s2)?(shortpair(s1,s2)):(shortpair(s2,s2));
+	return (s1<s2)?(shortpair(s1,s2)):(shortpair(s2,s1));
 }
 struct eqshortpair{
 	bool operator()(shortpair s1, shortpair s2) const {
