@@ -47,7 +47,7 @@ void print_counters(void){
 		fclose(ccFile);
 }
 
-void init_cache_counters(uint8_t avail_counters){
+void init_cache_counters(int avail_counters){
 		eventsize=avail_counters;
 		atexit(print_counters);
 		int retval = PAPI_library_init( PAPI_VER_CURRENT );

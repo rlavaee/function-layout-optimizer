@@ -8,21 +8,21 @@
 #include "llvm/Transforms/Instrumentation.h"
 using namespace llvm;
 
-cl::opt<uint8_t>
+cl::opt<int>
 AvailCounters("avail-counters",
                  cl::desc("Number of available hardware counters"),
-                 cl::init(4), cl::Hidden);
+                 cl::init(4));
 
 void InsertInitCacheCountersCall(Function * MainFn, const char *FnName){
   Module *M = MainFn->getParent();
   LLVMContext &Context = M->getContext();
   Type *VoidTy = Type::getVoidTy(Context);
-  Type *UCharTy = Type::getInt16Ty(Context);
+  Type *IntTy = Type::getInt32Ty(Context);
   Constant *InitFn = M->getOrInsertFunction(FnName, VoidTy,
-																						UCharTy,
+																						IntTy,
                                            (Type *)0);	
   std::vector<Value*> Args(1);
-  Args[0]=ConstantInt::get(UCharTy,AvailCounters);
+  Args[0]=ConstantInt::get(IntTy,AvailCounters);
   // Skip over any allocas in the entry block.
   BasicBlock *Entry = MainFn->begin();
   BasicBlock::iterator InsertPos = Entry->begin();

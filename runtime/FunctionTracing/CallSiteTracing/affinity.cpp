@@ -243,8 +243,8 @@ void print_optimal_layout(){
 	}
 
 	char affinityFilePath[80];
-	strcpy(affinityFilePath,"layout_");
-	strcat(affinityFilePath,(affEntryCmp==affEntry1DCmp)?("1D"):("2D"));
+	strcpy(affinityFilePath,"layout");
+	//strcat(affinityFilePath,(affEntryCmp==affEntry1DCmp)?("1D"):("2D"));
 	strcat(affinityFilePath,version_str);
   FILE *layoutFile = fopen(affinityFilePath,"w");  
 
