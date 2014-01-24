@@ -9,7 +9,7 @@ LEVEL=../..
 #
 # List all of the subdirectories that we will compile.
 #
-DIRS= CallEdgeTracing CallSiteTracing BurstyCallSiteTracing
+DIRS= CallEdgeTracing CallSiteTracing BurstyCallSiteTracing AdvCallSiteTracing
 
 include $(LEVEL)/Makefile.common
 
