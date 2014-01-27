@@ -9,12 +9,12 @@
 
 int DEBUG;
 FILE * comparisonFile, * orderFile, * traceFile;
-short maxWindowSize;
+wsize_t maxWindowSize;
 int memoryLimit;
 int sampleRateLog;
 uint32_t sampleSize;
 uint32_t sampleMask;
-short maxFreqLevel;
+func_t maxFreqLevel;
 
 JointFreqMap * joint_freqs;
 JointFreqRangeMap * joint_freq_ranges;
@@ -22,35 +22,45 @@ list<UpdateEntry> * joint_freq_update_lists;
 list<SampledWindow> trace_list;
 
 bool * contains_func;
-unsigned short * age;
-list<short>::iterator * func_trace_it;
+list<func_t>::iterator * func_trace_it;
 list<SampledWindow>::iterator * func_window_it;
-int trace_list_size;
+wsize_t trace_list_size;
 
 list<SampledWindow>::iterator window_iter;
-list<short>::iterator func_iter;
-list<short>::iterator partial_trace_list_end;
-list<short> * last_window_trace_list;
+list<SampledWindow>::iterator top_window_iter;
+list<func_t>::iterator func_iter;
+list<func_t>::iterator partial_trace_list_end;
+list<func_t> * last_window_trace_list;
 
-uint64_t ** single_freqs;
+uint32_t *** single_freq_ranges; 
+uint32_t ** single_freqs;
 
-short prevFunc;
+
+int prevFunc;
 FILE * graphFile, * debugFile;
 
-uint64_t * null_joint_freq = new uint64_t[maxWindowSize+1]();
-const char * version_str=".aabc";
+uint32_t * null_joint_freq = new uint32_t[maxWindowSize+1]();
+const char * version_str=".fabc";
 
 sem_t affinity_sem;
+
+void create_single_freqs(){
+  for(func_t f=0; f<totalFuncs; ++f)
+    for(wsize_t i=1; i<= maxWindowSize; ++i)
+      for(wsize j=i; j<= maxWindowSize; ++j)
+        for(wsize k=i; k<=j; ++k)
+        single_freqs[f][k]+=single_freq_ranges[f][i][j];
+}
 
 void create_joint_freqs(){
   JointFreqRangeMap::iterator it_end= joint_freq_ranges->end();
   for(JointFreqRangeMap::iterator it=joint_freq_ranges->begin(); it!=it_end; ++it){	
-    shortpair update_pair = it->first;
-    uint64_t ** freq_range_matrix = it->second;
-    uint64_t * freq_array;
+    funcpair_t update_pair = it->first;
+    uint32_t ** freq_range_matrix = it->second;
+    uint32_t * freq_array;
     JointFreqMap::iterator result = joint_freqs->find(update_pair);
     if(result== joint_freqs->end())
-      (*joint_freqs)[update_pair]= freq_array=new uint64_t[maxWindowSize+1]();
+      (*joint_freqs)[update_pair]= freq_array=new uint32_t[maxWindowSize+1]();
     else
       freq_array=result->second;
 
@@ -58,76 +68,55 @@ void create_joint_freqs(){
       for(int j=i; j<=maxWindowSize; ++j)
         for(int k=i; k<=j; ++k){
           freq_array[k]+=freq_range_matrix[i][j];
-				}
+        }
   } 
 }
-void commit_joint_freq_updates(short func,int max_wsize, bool reinsert=false){
-	list<UpdateEntry>::iterator update_list_it = joint_freq_update_lists[func].begin();	
-	list<UpdateEntry>::iterator update_list_end = joint_freq_update_lists[func].end();	
-	while(update_list_it != update_list_end){
-		UpdateEntry update_entry = * update_list_it;
-    shortpair update_pair=shortpair(func,update_entry.func);
-		if(update_entry.min_wsize <= max_wsize){
-    	uint64_t ** freq_range_matrix;
-    	JointFreqRangeMap::iterator result=joint_freq_ranges->find(update_pair);
-    	if(result == joint_freq_ranges->end()){
-      	freq_range_matrix = new uint64_t*[maxWindowSize+1];
-      	for(int i=1; i<=maxWindowSize; ++i)
-        	freq_range_matrix[i]=new uint64_t[maxWindowSize+1]();
-      	(*joint_freq_ranges)[update_pair]= freq_range_matrix;
-    	}else
-      	freq_range_matrix=result->second;
-    
-			freq_range_matrix[update_entry.min_wsize][max_wsize] += update_entry.age;
+void commit_freq_updates(SampledWindow &sw, wsize_t max_wsize){
 
-			if(DEBUG>2){
-				printf("&&&&&&&&&&&&&&&& commit\n");
-				printf("(%d,%d)[%d..%d] += 0x%x\n",update_pair.first, update_pair.second,update_entry.min_wsize,max_wsize,update_entry.age);
-			}
-		}
+  while(!sw.single_update_list.empty()){
+    SingleUpdateEntry sue = sw.single_update_list.front();
+    sw.single_update_list.pop_front();
 
-		if(reinsert && (max_wsize < maxWindowSize) && (update_entry.min_wsize <= max_wsize)){
-			update_list_it->min_wsize= max_wsize+1;
-			update_list_it->age = age[func];
-			update_list_it++;
-		}else
-			update_list_it = joint_freq_update_lists[func].erase(update_list_it);
+    assert(sue.min_wsize <= max_wsize);
+    single_freq_ranges[sue.func][sue.min_wsize][max_wsize]++;
+  }
+
+  while(!sw.joint_update_list.empty()){
+    JointUpdateEntry jue = sw.joint_update_list.front();
+    sw.joint_update_list.pop_front();
+
+    assert(jue.min_wsize <= max_wsize);
+
+    uint32_t ** joint_freq_range_matrix;
+    JointFreqRangeMap::iterator result=joint_freq_ranges->find(jue.func_pair);
+    if(result == joint_freq_ranges->end()){
+      freq_range_matrix = new uint32_t*[maxWindowSize+1];
+      for(int i=1; i<=maxWindowSize; ++i)
+        freq_range_matrix[i]=new uint32_t[maxWindowSize+1]();
+
+      (*joint_freq_ranges)[jue.func_pair]= freq_range_matrix;
+    }else
+      freq_range_matrix=result->second;
+
+    freq_range_matrix[jue.min_wsize][max_wsize]++;
+
+    if(DEBUG>2){
+      fprintf(debugFile,"&&&&&&&&&&&&&&&& commit\n");
+      fprintf(debugFile,"(%d,%d)[%d..%d]++\n",jue.func_pair.first, jue.func_pair.second,jue.min_wsize,max_wsize);
+    }
   }
 }
 
-void shift_ages(){
-	window_iter=trace_list.begin();
-		int top_wsize = 0;
-
-  	while(window_iter!=trace_list.end()){
-			top_wsize += window_iter->wsize;
-    	func_iter =  window_iter->partial_trace_list.begin();
-			partial_trace_list_end= window_iter->partial_trace_list.end();
-
-    	while(func_iter!=partial_trace_list_end){	
-					if(DEBUG>0)
-						printf("shifting age for %hd:",*func_iter);
-					age[*func_iter] >>= 1;
-					if(DEBUG>0)
-						printf(" now is 0x%x.\n",age[*func_iter]);
-					commit_joint_freq_updates(*func_iter, top_wsize, true);
-				func_iter++;
-    	}
-    	window_iter++;
-  	}
-
-}
-extern "C" void record_function_exec(short FuncNum){
+extern "C" void record_function_exec(func_t FuncNum){
   if(prevFunc==FuncNum)
     return;
   else
     prevFunc=FuncNum;
 
-	//fprintf(traceFile,"%hd\n",FuncNum);
+  //fprintf(traceFile,"%hd\n",FuncNum);
   uint32_t r=rand();
   bool sampled=false;
   if((r & sampleMask)==0){
-		//shift_ages();
     SampledWindow sw;
     sw.wcount=1;
     trace_list.push_front(sw);
@@ -140,28 +129,27 @@ extern "C" void record_function_exec(short FuncNum){
   else
     return;
 
-	
-	if(DEBUG>0){
-		if(sampled)
-			printf("New Window\n");
-		print_trace(&trace_list);
-	}
+
+  if(DEBUG>0){
+    if(sampled)
+      fprintf(debugFile,"new window\n");
+    print_trace(&trace_list);
+  }
 
   if(!contains_func[FuncNum]){
     trace_list_size++;
-		trace_list.front().wsize++;
+    trace_list.front().wsize++;
 
     if(trace_list_size > maxWindowSize){
       if(trace_list.size()==1)
         trace_list.front().partial_trace_list.pop_front();
 
+      commit_freq_updates(trace_list.back());
       last_window_trace_list= &(trace_list.back().partial_trace_list);			
 
       while(!last_window_trace_list->empty()){
-        short oldFuncNum=last_window_trace_list->front();
-        commit_joint_freq_updates(oldFuncNum,trace_list_size-1);
+        func_t oldFuncNum=last_window_trace_list->front();
         contains_func[oldFuncNum]=false;
-				age[oldFuncNum]=0;
         last_window_trace_list->pop_front();
       }
       trace_list_size-=trace_list.back().wsize;
@@ -177,43 +165,35 @@ extern "C" void record_function_exec(short FuncNum){
     }
 
   }else{
-		trace_list.front().wsize++;
+    trace_list.front().wsize++;
     func_window_it[FuncNum]->wsize--;
     if(trace_list.begin()!=func_window_it[FuncNum]){
 
-      int top_wsize = 0;
-      window_iter = trace_list.begin();
-      while(window_iter!=func_window_it[FuncNum]){
-        top_wsize+=window_iter->wsize;
-				window_iter++;
-      }
-			top_wsize+=window_iter->wsize;
-      commit_joint_freq_updates(FuncNum,top_wsize);
       sequential_update_affinity(func_window_it[FuncNum]);
-		}
-			window_iter=func_window_it[FuncNum];
-      window_iter->partial_trace_list.erase(func_trace_it[FuncNum]);
+    }
+    window_iter=func_window_it[FuncNum];
+    window_iter->partial_trace_list.erase(func_trace_it[FuncNum]);
 
-      if(window_iter->partial_trace_list.empty())
-        trace_list.erase(window_iter);
+    if(window_iter->partial_trace_list.empty()){
+      commit_freq_updates(*window_iter);
+      trace_list.erase(window_iter);
+    }
 
       func_window_it[FuncNum] = trace_list.begin();
       func_trace_it[FuncNum] = trace_list.begin()->partial_trace_list.begin();	
   }
 
-		
-	age[FuncNum] = (age[FuncNum] >> 1) | 0x8000;
 
 }
 
 void print_optimal_layout(){
-  short * layout = new short[totalFuncs];
+  func_t * layout = new func_t[totalFuncs];
   int count=0;
   for(int i=0; i< totalFuncs; ++i){
     //printf("i is now %d\n",i);
     if(disjointSet::sets[i]){
       disjointSet * thisSet=disjointSet::sets[i];
-      for(deque<short>::iterator it=disjointSet::sets[i]->elements.begin(), 
+      for(deque<func_t>::iterator it=disjointSet::sets[i]->elements.begin(), 
           it_end=disjointSet::sets[i]->elements.end()
           ; it!=it_end ; ++it){
         //printf("this is *it:%d\n",*it);
@@ -227,7 +207,7 @@ void print_optimal_layout(){
 
   char affinityFilePath[80];
   strcpy(affinityFilePath,"layout");
- //strcat(affinityFilePath,(affEntryCmp==&affEntry1DCmp)?("1D"):("2D"));
+  //strcat(affinityFilePath,(affEntryCmp==&affEntry1DCmp)?("1D"):("2D"));
   strcat(affinityFilePath,version_str);
   FILE *layoutFile = fopen(affinityFilePath,"w");  
 
@@ -240,13 +220,13 @@ void print_optimal_layout(){
 }
 
 void print_optimal_layouts(){
-  short * layout = new short[totalFuncs];
+  func_t * layout = new func_t[totalFuncs];
   int count=0;
   for(int i=0; i< totalFuncs; ++i){
     //printf("i is now %d\n",i);
     if(disjointSet::sets[i]){
       disjointSet * thisSet=disjointSet::sets[i];
-      for(deque<short>::iterator it=disjointSet::sets[i]->elements.begin(), 
+      for(deque<func_t>::iterator it=disjointSet::sets[i]->elements.begin(), 
           it_end=disjointSet::sets[i]->elements.end()
           ; it!=it_end ; ++it){
         //printf("this is *it:%d\n",*it);
@@ -266,7 +246,7 @@ void print_optimal_layouts(){
 
   FILE *affinityFile = fopen(affinityFilePath,"w");  
 
-  for(short i=0;i<totalFuncs;++i){
+  for(func_t i=0;i<totalFuncs;++i){
     if(i%20==0)
       fprintf(affinityFile, "\n");
     fprintf(affinityFile, "%u ",layout[i]);
@@ -284,17 +264,28 @@ void initialize_affinity_data(){
 
   joint_freqs=new JointFreqMap();
   joint_freq_ranges= new JointFreqRangeMap();
-  single_freqs=new uint64_t* [totalFuncs];
 
-  for(short i=0;i<totalFuncs;++i)
-    single_freqs[i]=new uint64_t[maxWindowSize+1]();
+  single_freqs=new uint32_t* [totalFuncs];
+  single_freq_ranges = new uint32_t** [totalFuncs];
+
+  for(func_t f=0;f<totalFuncs;++f){
+    single_freqs[f]=new uint32_t[maxWindowSize+1]();
+    single_freq_ranges[f]=new uint32_t*[maxWindowSize+1];
+    for(wsize_t i=1; i<=maxWindowSize; i++)
+      single_freq_ranges[f][i]=new uint32_t[maxWindowSize+1]();
+  }
+
   contains_func = new bool [totalFuncs]();
-	age = new unsigned short [totalFuncs]();
-  func_window_it = new list<SampledWindow>::iterator [totalFuncs];
-  func_trace_it = new list<short>::iterator  [totalFuncs];
 
-  joint_freq_update_lists = new list<UpdateEntry> [totalFuncs];
-	traceFile = fopen("trace.txt","w");
+
+  func_window_it = new list<SampledWindow>::iterator [totalFuncs];
+  func_trace_it = new list<func_t>::iterator  [totalFuncs];
+
+  if(DEBUG > 9)
+    traceFile = fopen("trace.txt","w");
+
+  if(DEBUG > 0)
+    debugFile = fopen("debug.txt","w");
 }
 
 void aggregate_affinity(){
@@ -307,24 +298,24 @@ void aggregate_affinity(){
 
   graphFile=fopen(graphFilePath,"r");
   if(graphFile!=NULL){
-    short u1,u2;
-		uint64_t sfreq,jfreq;
-		for(short i=0;i<totalFuncs; ++i){
-			fscanf(graphFile,"(%*hd):");
-			for(short wsize=1; wsize<=maxWindowSize; ++wsize){
+    func_t u1,u2;
+    uint32_t sfreq,jfreq;
+    for(func_t i=0;i<totalFuncs; ++i){
+      fscanf(graphFile,"(%*hd):");
+      for(func_t wsize=1; wsize<=maxWindowSize; ++wsize){
         fscanf(graphFile,"%lu ",&sfreq);
         single_freqs[i][wsize]+=sfreq;
       }
-		}
+    }
     while(fscanf(graphFile,"(%hd,%hd):",&u1,&u2)!=EOF){
-			shortpair entryToAdd=shortpair(u1,u2);
-      uint64_t * freq_array=(*joint_freqs)[entryToAdd];
-			if(freq_array==NULL){
-				freq_array= new uint64_t[maxWindowSize+1]();
-				(*joint_freqs)[entryToAdd]=freq_array;
-			}
-			//printf("(%hd,%hd)\n",u1,u2);
-			for(short wsize=1; wsize<=maxWindowSize; ++wsize){
+      funcpair_t entryToAdd=funcpair_t(u1,u2);
+      uint32_t * freq_array=(*joint_freqs)[entryToAdd];
+      if(freq_array==NULL){
+        freq_array= new uint32_t[maxWindowSize+1]();
+        (*joint_freqs)[entryToAdd]=freq_array;
+      }
+      //printf("(%hd,%hd)\n",u1,u2);
+      for(func_t wsize=1; wsize<=maxWindowSize; ++wsize){
         fscanf(graphFile,"{%lu} ",&jfreq);
         freq_array[wsize] +=jfreq;
       }
@@ -335,18 +326,18 @@ void aggregate_affinity(){
 
   graphFile=fopen(graphFilePath,"w+");
 
-    for(short i=0;i<totalFuncs;++i){
-      fprintf(graphFile,"(%hd):",i);
-			for(short wsize=1; wsize<=maxWindowSize;++wsize)
-				fprintf(graphFile,"%lu ",single_freqs[i][wsize]);
-    	fprintf(graphFile,"\n");
-		}
-    for(iter=joint_freqs->begin(); iter!=joint_freqs->end(); ++iter){
-      fprintf(graphFile,"(%hd,%hd):",iter->first.first,iter->first.second);
-			for(short wsize=1;wsize<=maxWindowSize;++wsize)
-				fprintf(graphFile,"{%lu} ",iter->second[wsize]);
-			fprintf(graphFile,"\n");
-    }
+  for(func_t i=0;i<totalFuncs;++i){
+    fprintf(graphFile,"(%hd):",i);
+    for(func_t wsize=1; wsize<=maxWindowSize;++wsize)
+      fprintf(graphFile,"%lu ",single_freqs[i][wsize]);
+    fprintf(graphFile,"\n");
+  }
+  for(iter=joint_freqs->begin(); iter!=joint_freqs->end(); ++iter){
+    fprintf(graphFile,"(%hd,%hd):",iter->first.first,iter->first.second);
+    for(func_t wsize=1;wsize<=maxWindowSize;++wsize)
+      fprintf(graphFile,"{%lu} ",iter->second[wsize]);
+    fprintf(graphFile,"\n");
+  }
 
 
   fclose(graphFile);
@@ -356,38 +347,39 @@ void aggregate_affinity(){
    and prints out the results */
 void find_affinity_groups(){
 
-  vector<shortpair> all_affEntry_iters;
+  vector<funcpair_t> all_affEntry_iters;
   for(JointFreqMap::iterator iter=joint_freqs->begin(); iter!=joint_freqs->end(); ++iter){
     if(iter->first.first < iter->first.second)
       all_affEntry_iters.push_back(iter->first);
   }
-	comparisonFile = fopen("compare.txt","w");
+  comparisonFile = fopen("compare.txt","w");
   sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),affEntryCmp);
-	fclose(comparisonFile);
-	comparisonFile=NULL;
+  fclose(comparisonFile);
+  comparisonFile=NULL;
 
-	orderFile = fopen("order.txt","w");
+  orderFile = fopen("order.txt","w");
 
 
   disjointSet::sets = new disjointSet *[totalFuncs];
-  for(short i=0; i<totalFuncs; ++i)
+  for(func_t i=0; i<totalFuncs; ++i)
     disjointSet::init_new_set(i);
 
-  for(vector<shortpair>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
-		fprintf(orderFile,"(%d,%d) {{%lu|%lu}}\n",iter->first,iter->second,single_freqs[iter->first][maxWindowSize],single_freqs[iter->second][maxWindowSize]);
+  for(vector<funcpair_t>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
+    fprintf(orderFile,"(%d,%d) {{%lu|%lu}}\n",iter->first,iter->second,single_freqs[iter->first][maxWindowSize],single_freqs[iter->second][maxWindowSize]);
     disjointSet::mergeSets(iter->first, iter->second);
   } 
 
-	fclose(orderFile);
+  fclose(orderFile);
 
 }
 
 /* Must be called at exit*/
 void affinityAtExitHandler(){
-	fclose(traceFile);
-	for(short i=0;i<totalFuncs; ++i)
-		commit_joint_freq_updates(i,trace_list_size);
+  fclose(traceFile);
+  for(func_t i=0;i<totalFuncs; ++i)
+    commit_joint_freq_updates(i,trace_list_size);
   create_joint_freqs();
+  create_single_freqs();
   aggregate_affinity();
 
   affEntryCmp=&affEntry2DCmp;
@@ -400,17 +392,16 @@ void affinityAtExitHandler(){
 void print_trace(list<SampledWindow> * tlist){
   list<SampledWindow>::iterator window_iter=tlist->begin();
 
-  list<short>::iterator trace_iter;
+  list<func_t>::iterator trace_iter;
 
   printf("---------------------------------------------\n");
   while(window_iter!=tlist->end()){
     trace_iter =  window_iter->partial_trace_list.begin();
-    printf("windows: %d\n",window_iter->wcount);
     printf("size: %d\n",window_iter->wsize);
 
 
     while(trace_iter!=window_iter->partial_trace_list.end()){
-      printf("%d[0x%x] ",*trace_iter, age[*trace_iter]);
+      printf("%d ",*trace_iter);
       trace_iter++;
     }
     printf("\n");
@@ -423,94 +414,101 @@ void print_trace(list<SampledWindow> * tlist){
 
 void sequential_update_affinity(list<SampledWindow>::iterator grown_list_end){
 
-  unsigned top_wsize=0;
+  wsize_t top_wsize=0;
+  wsize_t wsize;
   window_iter = trace_list.begin();
   func_iter = window_iter->partial_trace_list.begin();
 
-  short FuncNum= * func_iter;
+  func_t FuncNum= * func_iter;
 
-  while(window_iter!= grown_list_end){
-    top_wsize += window_iter->wsize;
+  while(top_window_iter!= grown_list_end){
+    top_wsize += top_window_iter->wsize;
+
+    SingleUpdateEntry sue(FuncNum,top_wsize);
+    top_window_iter->add_single_update_entry(sue);
+          
+    if(DEBUG>1){
+            fprintf(debugFile,"################\n");
+            fprintf(debugFile,"update single: %d[%d..]++\n",FuncNum,top_wsize);
+          }
+
     func_iter = window_iter->partial_trace_list.begin();
 
     partial_trace_list_end = window_iter->partial_trace_list.end();
     while(func_iter != partial_trace_list_end){
 
-      short oldFuncNum= * func_iter;
-      single_freqs[oldFuncNum][top_wsize]+=age[oldFuncNum];
-			if(DEBUG>1){
-				printf("########################\n");
-				printf("update single: %d[%d] += 0x%x\n",oldFuncNum,top_wsize,age[oldFuncNum]);
-			}
+      func_t oldFuncNum= * func_iter;
       if(oldFuncNum!=FuncNum){
-			if(DEBUG>1){
-				printf("************************\n");
-				printf("update pair: (%d,%d)[%d] += 0x%x\n",oldFuncNum,FuncNum,top_wsize,age[oldFuncNum]);
-			}
-        UpdateEntry update_entry(FuncNum, top_wsize, age[oldFuncNum]);
-        joint_freq_update_lists[oldFuncNum].push_back(update_entry);
-				if(window_iter == trace_list.begin()){
-					UpdateEntry update_entry_rev(oldFuncNum, top_wsize, age[FuncNum]);
-					joint_freq_update_lists[FuncNum].push_back(update_entry_rev);
-					if(DEBUG>1){
-						printf("************************\n");
-						printf("update pair: (%d,%d)[%d] += 0x%x\n",FuncNum,oldFuncNum,top_wsize,age[FuncNum]);
-					}
-				}
+        window_iter = top_window_iter;
+        wsize=top_wsize;
+
+        while(window_iter != grown_list_end){
+          wsize+=window_iter->wsize;
+
+                    JointUpdateEntry jue(unordered_pair(FuncNum,oldFuncNum);
+          window_iter->add_joint_update_entry(jue);
+
+          if(DEBUG>1){
+            fprintf(debugFile,"****************\n");
+            fprintf(debugFile,"update pair: (%d,%d)[%d..]++\n",oldFuncNum,FuncNum,wsize);
+          }            
+          window_iter++;
+          }
+        }
+
+              func_iter++;
       }
 
-      func_iter++;
-    }
-
-    window_iter++;
-
-  } 
+              top_window_iter++;
+              }
 
 
-}
+              } 
+
+
 
 /*
-bool affEntry1DCmp(const shortpair &left_pair,const shortpair &right_pair){
+   bool affEntry1DCmp(const funcpair_t &left_pair,const funcpair_t &right_pair){
 
- 	int * jointFreq_left = (*joint_freqs)[left_pair];
-  int * jointFreq_right = (*joint_freqs)[right_pair];
-  if(jointFreq_left == NULL && jointFreq_right != NULL)
-    return false;
-  if(jointFreq_left != NULL && jointFreq_right == NULL)
-    return true;
+   int * jointFreq_left = (*joint_freqs)[left_pair];
+   int * jointFreq_right = (*joint_freqs)[right_pair];
+   if(jointFreq_left == NULL && jointFreq_right != NULL)
+   return false;
+   if(jointFreq_left != NULL && jointFreq_right == NULL)
+   return true;
 
-  if(jointFreq_left != NULL){
-    int left_pair_val, right_pair_val;
+   if(jointFreq_left != NULL){
+   int left_pair_val, right_pair_val;
 
-    float rel_freq_threshold=2.0;
-    for(short wsize=2;wsize<=maxWindowSize;++wsize){
+   float rel_freq_threshold=2.0;
+   for(func_t wsize=2;wsize<=maxWindowSize;++wsize){
 
-      if((rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.first][wsize]) && 
-          (rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.second][wsize]))
-        left_pair_val = 1;
-      else
-        left_pair_val = -1;
+   if((rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.first][wsize]) && 
+   (rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.second][wsize]))
+   left_pair_val = 1;
+   else
+   left_pair_val = -1;
 
-      if((rel_freq_threshold*(jointFreq_right[wsize]) >= single_freqs[right_pair.first][wsize]) && 
-          (rel_freq_threshold*(jointFreq_right[wsize]) >= single_freqs[right_pair.second][wsize]))
-        right_pair_val = 1;
-      else
-        right_pair_val = -1;
+   if((rel_freq_threshold*(jointFreq_right[wsize]) >= single_freqs[right_pair.first][wsize]) && 
+   (rel_freq_threshold*(jointFreq_right[wsize]) >= single_freqs[right_pair.second][wsize]))
+   right_pair_val = 1;
+   else
+   right_pair_val = -1;
 
-      if(left_pair_val != right_pair_val)
-        return (left_pair_val > right_pair_val);
-    }
-  }
+   if(left_pair_val != right_pair_val)
+   return (left_pair_val > right_pair_val);
+   }
+   }
 
-  if(left_pair.first != right_pair.first)
-    return (left_pair.first > right_pair.first);
+   if(left_pair.first != right_pair.first)
+   return (left_pair.first > right_pair.first);
 
-  return left_pair.second > right_pair.second;
+   return left_pair.second > right_pair.second;
 
-}
-*/
+   }
+   */
 
-uint64_t * GetWithDef(JointFreqMap * m, const shortpair &key, uint64_t * defval) {
+uint32_t * GetWithDef(JointFreqMap * m, const funcpair_t &key, uint32_t * defval) {
   JointFreqMap::const_iterator it = m->find( key );
   if ( it == m->end() ) {
     return defval;
@@ -519,53 +517,53 @@ uint64_t * GetWithDef(JointFreqMap * m, const shortpair &key, uint64_t * defval)
     return it->second;
   }
 }
-bool affEntry2DCmp(const shortpair &left_pair, const shortpair &right_pair){
+bool affEntry2DCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
 
-	shortpair left_pair_rev = shortpair(left_pair.second, left_pair.first);
-	shortpair right_pair_rev = shortpair(right_pair.second, right_pair.first);
+  funcpair_t left_pair_rev = funcpair_t(left_pair.second, left_pair.first);
+  funcpair_t right_pair_rev = funcpair_t(right_pair.second, right_pair.first);
 
-  uint64_t * joint_freq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
-  uint64_t * joint_freq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
+  uint32_t * joint_freq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
+  uint32_t * joint_freq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
 
-  uint64_t * joint_freq_left_rev = GetWithDef(joint_freqs, left_pair_rev, null_joint_freq);
-  uint64_t * joint_freq_right_rev = GetWithDef(joint_freqs, right_pair_rev, null_joint_freq);
+  uint32_t * joint_freq_left_rev = GetWithDef(joint_freqs, left_pair_rev, null_joint_freq);
+  uint32_t * joint_freq_right_rev = GetWithDef(joint_freqs, right_pair_rev, null_joint_freq);
 
-  	int left_pair_val, right_pair_val;
+  int left_pair_val, right_pair_val;
 
-    short freqlevel;
-    float rel_freq_threshold;
-    for(freqlevel=0, rel_freq_threshold=1.0; freqlevel<maxFreqLevel; ++freqlevel, rel_freq_threshold+=5.0/maxFreqLevel){
-      for(short wsize=2;wsize<=maxWindowSize;++wsize){
+  func_t freqlevel;
+  float rel_freq_threshold;
+  for(freqlevel=0, rel_freq_threshold=1.0; freqlevel<maxFreqLevel; ++freqlevel, rel_freq_threshold+=5.0/maxFreqLevel){
+    for(func_t wsize=2;wsize<=maxWindowSize;++wsize){
 
-        uint64_t joint_freq_left_wsize = joint_freq_left[wsize]+joint_freq_left_rev[wsize];
-				uint64_t single_freq_left_wsize = single_freqs[left_pair.first][wsize]+single_freqs[left_pair.second][wsize];
+      uint32_t joint_freq_left_wsize = joint_freq_left[wsize]+joint_freq_left_rev[wsize];
+      uint32_t single_freq_left_wsize = single_freqs[left_pair.first][wsize]+single_freqs[left_pair.second][wsize];
 
-        if(rel_freq_threshold*joint_freq_left_wsize >= single_freq_left_wsize) 
-          left_pair_val = 1;
-        else
-          left_pair_val = -1;
+      if(rel_freq_threshold*joint_freq_left_wsize >= single_freq_left_wsize) 
+        left_pair_val = 1;
+      else
+        left_pair_val = -1;
 
-        uint64_t joint_freq_right_wsize = joint_freq_right[wsize]+joint_freq_right_rev[wsize];
-				uint64_t single_freq_right_wsize = single_freqs[right_pair.first][wsize]+single_freqs[right_pair.second][wsize];
+      uint32_t joint_freq_right_wsize = joint_freq_right[wsize]+joint_freq_right_rev[wsize];
+      uint32_t single_freq_right_wsize = single_freqs[right_pair.first][wsize]+single_freqs[right_pair.second][wsize];
 
-        if(rel_freq_threshold*joint_freq_right_wsize >= single_freq_right_wsize)
-          right_pair_val = 1;
-        else
-          right_pair_val = -1;
+      if(rel_freq_threshold*joint_freq_right_wsize >= single_freq_right_wsize)
+        right_pair_val = 1;
+      else
+        right_pair_val = -1;
 
-        if(left_pair_val != right_pair_val){
-					if(comparisonFile!=NULL){
-						fprintf(comparisonFile,"(%d,%d):(%lu/%lu) ",left_pair.first,left_pair.second,joint_freq_left_wsize,single_freq_left_wsize); 
-						fprintf(comparisonFile,(left_pair_val > right_pair_val)?(">"):("<"));
-						fprintf(comparisonFile," (%d,%d):(%lu/%lu) [wsize:%d, threshold:%f]\n",right_pair.first,right_pair.second, joint_freq_right_wsize, single_freq_right_wsize ,wsize,rel_freq_threshold);
-					}
-          return (left_pair_val > right_pair_val);
-				}
+      if(left_pair_val != right_pair_val){
+        if(comparisonFile!=NULL){
+          fprintf(comparisonFile,"(%d,%d):(%lu/%lu) ",left_pair.first,left_pair.second,joint_freq_left_wsize,single_freq_left_wsize); 
+          fprintf(comparisonFile,(left_pair_val > right_pair_val)?(">"):("<"));
+          fprintf(comparisonFile," (%d,%d):(%lu/%lu) [wsize:%d, threshold:%f]\n",right_pair.first,right_pair.second, joint_freq_right_wsize, single_freq_right_wsize ,wsize,rel_freq_threshold);
+        }
+        return (left_pair_val > right_pair_val);
       }
     }
+  }
 
-	if(comparisonFile!=NULL)
-		fprintf(comparisonFile,"(%d,%d) <> (%d,%d)\n",left_pair.first,left_pair.second, right_pair.first, right_pair.second);
+  if(comparisonFile!=NULL)
+    fprintf(comparisonFile,"(%d,%d) <> (%d,%d)\n",left_pair.first,left_pair.second, right_pair.first, right_pair.second);
 
   if(left_pair.first != right_pair.first)
     return (left_pair.first < right_pair.first);
@@ -582,12 +580,12 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
   disjointSet * mergee = (set1->size()<set2->size())?(set1):(set2);
 
 
-  shortpair frontMerger_backMergee(merger->elements.front(), mergee->elements.back());
-  shortpair backMerger_backMergee(merger->elements.back(), mergee->elements.back());
-  shortpair backMerger_frontMergee(merger->elements.back(), mergee->elements.front());
-  shortpair frontMerger_frontMergee(merger->elements.front(), mergee->elements.front());
-  shortpair conAffEntriesArray[4]={frontMerger_frontMergee, frontMerger_backMergee, backMerger_frontMergee, backMerger_backMergee};
-  vector<shortpair> conAffEntries(conAffEntriesArray,conAffEntriesArray+4);
+  funcpair_t frontMerger_backMergee(merger->elements.front(), mergee->elements.back());
+  funcpair_t backMerger_backMergee(merger->elements.back(), mergee->elements.back());
+  funcpair_t backMerger_frontMergee(merger->elements.back(), mergee->elements.front());
+  funcpair_t frontMerger_frontMergee(merger->elements.front(), mergee->elements.front());
+  funcpair_t conAffEntriesArray[4]={frontMerger_frontMergee, frontMerger_backMergee, backMerger_frontMergee, backMerger_backMergee};
+  vector<funcpair_t> conAffEntries(conAffEntriesArray,conAffEntriesArray+4);
   sort(conAffEntries.begin(), conAffEntries.end(), affEntryCmp);
 
   assert(affEntryCmp(conAffEntries[0],conAffEntries[1]) || (conAffEntries[0]==conAffEntries[1]));
@@ -599,7 +597,7 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
 
   if(con_mergee_front){
 
-    for(deque<short>::iterator it=mergee->elements.begin(); it!=mergee->elements.end(); ++it){
+    for(deque<func_t>::iterator it=mergee->elements.begin(); it!=mergee->elements.end(); ++it){
       if(con_merger_front)
         merger->elements.push_front(*it);
       else
@@ -607,7 +605,7 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
       disjointSet::sets[*it]=merger;
     }
   }else{
-    for(deque<short>::reverse_iterator rit=mergee->elements.rbegin(); rit!=mergee->elements.rend(); ++rit){
+    for(deque<func_t>::reverse_iterator rit=mergee->elements.rbegin(); rit!=mergee->elements.rend(); ++rit){
       if(con_merger_front)
         merger->elements.push_front(*rit);
       else
@@ -623,9 +621,9 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
 static void save_affinity_environment_variables(void) {
   const char *SampleRateEnvVar, *MaxWindowSizeEnvVar, *MaxFreqLevelEnvVar, *MemoryLimitEnvVar, *DebugEnvVar;
 
-	if((DebugEnvVar = getenv("DEBUG")) !=NULL){
-		DEBUG = atoi(DebugEnvVar);
-	}
+  if((DebugEnvVar = getenv("DEBUG")) !=NULL){
+    DEBUG = atoi(DebugEnvVar);
+  }
 
   if ((MemoryLimitEnvVar = getenv("MEMORY_LIMIT")) != NULL) {
     memoryLimit = atoi(MemoryLimitEnvVar);
@@ -653,7 +651,7 @@ static void save_affinity_environment_variables(void) {
  * block tracing library.  It is responsible for setting up the atexit
  * handler and allocating the trace buffer.
  */
-extern "C" int start_call_site_tracing(short _totalFuncs) {
+extern "C" int start_call_site_tracing(func_t _totalFuncs) {
 
   save_affinity_environment_variables();  
   totalFuncs = _totalFuncs;
@@ -665,12 +663,12 @@ extern "C" int start_call_site_tracing(short _totalFuncs) {
 }
 
 /*
-int main(){
-	start_call_site_tracing(10);
-	FILE * inputTraceFile=fopen("input.txt","r");
-	short func;
-	while(fscanf(inputTraceFile,"%hd",&func)!=EOF){
-		record_function_exec(func);
-	}
-	return 0;
-}*/
+   int main(){
+   start_call_site_tracing(10);
+   FILE * inputTraceFile=fopen("input.txt","r");
+   func_t func;
+   while(fscanf(inputTraceFile,"%hd",&func)!=EOF){
+   record_function_exec(func);
+   }
+   return 0;
+   }*/
