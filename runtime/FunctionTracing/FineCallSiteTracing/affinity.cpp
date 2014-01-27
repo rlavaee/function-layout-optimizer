@@ -18,7 +18,6 @@ func_t maxFreqLevel;
 
 JointFreqMap * joint_freqs;
 JointFreqRangeMap * joint_freq_ranges;
-list<UpdateEntry> * joint_freq_update_lists;
 list<SampledWindow> trace_list;
 
 bool * contains_func;
@@ -47,8 +46,8 @@ sem_t affinity_sem;
 void create_single_freqs(){
   for(func_t f=0; f<totalFuncs; ++f)
     for(wsize_t i=1; i<= maxWindowSize; ++i)
-      for(wsize j=i; j<= maxWindowSize; ++j)
-        for(wsize k=i; k<=j; ++k)
+      for(wsize_t j=i; j<= maxWindowSize; ++j)
+        for(wsize_t k=i; k<=j; ++k)
           single_freqs[f][k]+=single_freq_ranges[f][i][j];
 }
 
@@ -90,15 +89,15 @@ void commit_freq_updates(SampledWindow &sw, wsize_t max_wsize){
     uint32_t ** joint_freq_range_matrix;
     JointFreqRangeMap::iterator result=joint_freq_ranges->find(jue.func_pair);
     if(result == joint_freq_ranges->end()){
-      freq_range_matrix = new uint32_t*[maxWindowSize+1];
+      joint_freq_range_matrix = new uint32_t*[maxWindowSize+1];
       for(int i=1; i<=maxWindowSize; ++i)
-        freq_range_matrix[i]=new uint32_t[maxWindowSize+1]();
+        joint_freq_range_matrix[i]=new uint32_t[maxWindowSize+1]();
 
-      (*joint_freq_ranges)[jue.func_pair]= freq_range_matrix;
+      (*joint_freq_ranges)[jue.func_pair]= joint_freq_range_matrix;
     }else
-      freq_range_matrix=result->second;
+      joint_freq_range_matrix=result->second;
 
-    freq_range_matrix[jue.min_wsize][max_wsize]++;
+    joint_freq_range_matrix[jue.min_wsize][max_wsize]++;
 
     if(DEBUG>2){
       fprintf(debugFile,"&&&&&&&&&&&&&&&& commit\n");
@@ -118,7 +117,6 @@ extern "C" void record_function_exec(func_t FuncNum){
   bool sampled=false;
   if((r & sampleMask)==0){
     SampledWindow sw;
-    sw.wcount=1;
     trace_list.push_front(sw);
     sampled=true;
   }
@@ -141,10 +139,7 @@ extern "C" void record_function_exec(func_t FuncNum){
     trace_list.front().wsize++;
 
     if(trace_list_size > maxWindowSize){
-      if(trace_list.size()==1)
-        trace_list.front().partial_trace_list.pop_front();
-
-      commit_freq_updates(trace_list.back());
+      commit_freq_updates(trace_list.back(),trace_list_size-1);
       last_window_trace_list= &(trace_list.back().partial_trace_list);			
 
       while(!last_window_trace_list->empty()){
@@ -167,15 +162,15 @@ extern "C" void record_function_exec(func_t FuncNum){
   }else{
     trace_list.front().wsize++;
     func_window_it[FuncNum]->wsize--;
+		wsize_t top_wsize = 0;
     if(trace_list.begin()!=func_window_it[FuncNum]){
-
-      sequential_update_affinity(func_window_it[FuncNum]);
+      top_wsize = sequential_update_affinity(func_window_it[FuncNum]);
     }
     window_iter=func_window_it[FuncNum];
     window_iter->partial_trace_list.erase(func_trace_it[FuncNum]);
 
     if(window_iter->partial_trace_list.empty()){
-      commit_freq_updates(*window_iter);
+      commit_freq_updates(*window_iter,top_wsize);
       trace_list.erase(window_iter);
     }
 
@@ -259,7 +254,6 @@ void initialize_affinity_data(){
   prevFunc=-1;
   trace_list_size=0;
 
-  //debugFile=fopen("debug.txt","w");
   srand(time(NULL));
 
   joint_freqs=new JointFreqMap();
@@ -303,7 +297,7 @@ void aggregate_affinity(){
     for(func_t i=0;i<totalFuncs; ++i){
       fscanf(graphFile,"(%*hd):");
       for(func_t wsize=1; wsize<=maxWindowSize; ++wsize){
-        fscanf(graphFile,"%lu ",&sfreq);
+        fscanf(graphFile,"%u ",&sfreq);
         single_freqs[i][wsize]+=sfreq;
       }
     }
@@ -316,7 +310,7 @@ void aggregate_affinity(){
       }
       //printf("(%hd,%hd)\n",u1,u2);
       for(func_t wsize=1; wsize<=maxWindowSize; ++wsize){
-        fscanf(graphFile,"{%lu} ",&jfreq);
+        fscanf(graphFile,"{%u} ",&jfreq);
         freq_array[wsize] +=jfreq;
       }
     }
@@ -329,13 +323,13 @@ void aggregate_affinity(){
   for(func_t i=0;i<totalFuncs;++i){
     fprintf(graphFile,"(%hd):",i);
     for(func_t wsize=1; wsize<=maxWindowSize;++wsize)
-      fprintf(graphFile,"%lu ",single_freqs[i][wsize]);
+      fprintf(graphFile,"%u ",single_freqs[i][wsize]);
     fprintf(graphFile,"\n");
   }
   for(iter=joint_freqs->begin(); iter!=joint_freqs->end(); ++iter){
     fprintf(graphFile,"(%hd,%hd):",iter->first.first,iter->first.second);
     for(func_t wsize=1;wsize<=maxWindowSize;++wsize)
-      fprintf(graphFile,"{%lu} ",iter->second[wsize]);
+      fprintf(graphFile,"{%u} ",iter->second[wsize]);
     fprintf(graphFile,"\n");
   }
 
@@ -365,7 +359,7 @@ void find_affinity_groups(){
     disjointSet::init_new_set(i);
 
   for(vector<funcpair_t>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
-    fprintf(orderFile,"(%d,%d) {{%lu|%lu}}\n",iter->first,iter->second,single_freqs[iter->first][maxWindowSize],single_freqs[iter->second][maxWindowSize]);
+    fprintf(orderFile,"(%d,%d) {{%u|%u}}\n",iter->first,iter->second,single_freqs[iter->first][maxWindowSize],single_freqs[iter->second][maxWindowSize]);
     disjointSet::mergeSets(iter->first, iter->second);
   } 
 
@@ -375,9 +369,17 @@ void find_affinity_groups(){
 
 /* Must be called at exit*/
 void affinityAtExitHandler(){
-  fclose(traceFile);
-  for(func_t i=0;i<totalFuncs; ++i)
-    commit_joint_freq_updates(i,trace_list_size);
+	if(DEBUG>9)
+		fclose(traceFile);
+	wsize_t top_wsize=0;
+	while(!trace_list.empty()){
+		SampledWindow sw = trace_list.front();
+		top_wsize += sw.wsize;
+		commit_freq_updates(sw,top_wsize);
+		trace_list.pop_front();
+	}
+	if(DEBUG>0)
+		fclose(debugFile);
   create_joint_freqs();
   create_single_freqs();
   aggregate_affinity();
@@ -394,17 +396,17 @@ void print_trace(list<SampledWindow> * tlist){
 
   list<func_t>::iterator trace_iter;
 
-  printf("---------------------------------------------\n");
+  fprintf(debugFile,"---------------------------------------------\n");
   while(window_iter!=tlist->end()){
     trace_iter =  window_iter->partial_trace_list.begin();
-    printf("size: %d\n",window_iter->wsize);
+    fprintf(debugFile,"size: %d\n",window_iter->wsize);
 
 
     while(trace_iter!=window_iter->partial_trace_list.end()){
-      printf("%d ",*trace_iter);
+      fprintf(debugFile,"%d ",*trace_iter);
       trace_iter++;
     }
-    printf("\n");
+    fprintf(debugFile,"\n");
     window_iter++;
   }
 }
@@ -412,29 +414,21 @@ void print_trace(list<SampledWindow> * tlist){
 
 
 
-void sequential_update_affinity(list<SampledWindow>::iterator grown_list_end){
+wsize_t sequential_update_affinity(list<SampledWindow>::iterator grown_list_end){
 
   wsize_t top_wsize=0;
   wsize_t wsize;
-  window_iter = trace_list.begin();
-  func_iter = window_iter->partial_trace_list.begin();
+  top_window_iter = trace_list.begin();
+  func_iter = top_window_iter->partial_trace_list.begin();
 
   func_t FuncNum= * func_iter;
 
   while(top_window_iter!= grown_list_end){
-    top_wsize += top_window_iter->wsize;
 
-    SingleUpdateEntry sue(FuncNum,top_wsize);
-    top_window_iter->add_single_update_entry(sue);
+    
+    func_iter = top_window_iter->partial_trace_list.begin();
 
-    if(DEBUG>1){
-      fprintf(debugFile,"################\n");
-      fprintf(debugFile,"update single: %d[%d..]++\n",FuncNum,top_wsize);
-    }
-
-    func_iter = window_iter->partial_trace_list.begin();
-
-    partial_trace_list_end = window_iter->partial_trace_list.end();
+    partial_trace_list_end = top_window_iter->partial_trace_list.end();
     while(func_iter != partial_trace_list_end){
 
       func_t oldFuncNum= * func_iter;
@@ -444,26 +438,35 @@ void sequential_update_affinity(list<SampledWindow>::iterator grown_list_end){
 
         while(window_iter != grown_list_end){
           wsize+=window_iter->wsize;
+          JointUpdateEntry jue(unordered_funcpair(FuncNum,oldFuncNum),wsize);
+					window_iter->add_joint_update_entry(jue);
+					
+					if(DEBUG>1){
+						fprintf(debugFile,"****************\n");
+						fprintf(debugFile,"update pair: (%d,%d)[%d..]++\n",oldFuncNum,FuncNum,wsize);
+					}            
+         	window_iter++;
+        }
+     	}
 
-          JointUpdateEntry jue(unordered_pair(FuncNum,oldFuncNum);
-              window_iter->add_joint_update_entry(jue);
+     	func_iter++;
+   	}
+		
+    top_wsize += top_window_iter->wsize;
+		SingleUpdateEntry sue(FuncNum,top_wsize);
+    top_window_iter->add_single_update_entry(sue);
 
-              if(DEBUG>1){
-              fprintf(debugFile,"****************\n");
-              fprintf(debugFile,"update pair: (%d,%d)[%d..]++\n",oldFuncNum,FuncNum,wsize);
-              }            
-              window_iter++;
-              }
-              }
+    if(DEBUG>1){
+      fprintf(debugFile,"################\n");
+      fprintf(debugFile,"update single: %d[%d..]++\n",FuncNum,top_wsize);
+    }
 
-              func_iter++;
-              }
+   	top_window_iter++;
+	}
+	
+	return top_wsize;
 
-              top_window_iter++;
-              }
-
-
-              } 
+} 
 
 
 

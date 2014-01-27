@@ -45,7 +45,7 @@ struct funcpair_hash{
   size_t operator()(const funcpair_t& s) const{
     func_t smaller=(s.first<s.second)?(s.first):(s.second);
     func_t bigger=(s.first<s.second)?(s.second):(s.first);
-    return tr1::hash<func_t>()(totalFuncs*s.first + s.second);
+    return tr1::hash<func_t>()(totalFuncs*smaller + bigger);
   }
 };
 
@@ -64,8 +64,8 @@ struct SingleUpdateEntry{
   func_t func;
   wsize_t min_wsize;
   SingleUpdateEntry(func_t a, wsize_t b): func(a), min_wsize(b){}
+};
 
-}
 struct JointUpdateEntry{
   funcpair_t func_pair;
   wsize_t min_wsize;
@@ -94,38 +94,25 @@ disjointSet ** disjointSet::sets = 0;
 
 
 struct SampledWindow{
-  int wcount;
   wsize_t wsize;
-  list<const func_t> partial_trace_list;
-  list<const SingleUpdateEntry&> single_update_list;
-  list<const JointUpdateEntry&> joint_update_list;
+  list<func_t> partial_trace_list;
+  list<SingleUpdateEntry> single_update_list;
+  list<JointUpdateEntry> joint_update_list;
 
-  /*
-  SampledWindow(const SampledWindow & sw){
-    wcount=sw.wcount;
-    wsize= sw.wsize;
-    partial_trace_list = list<func_t>(sw.partial_trace_list);
-  }*/
+  SampledWindow():wsize(0){}
 
-  SampledWindow():wsize(0), wsize(0){}
-
-  add_single_update_entry(SingleUpdateEntry &sue){
+ 	void add_single_update_entry(SingleUpdateEntry &sue){
     single_update_list.push_back(sue);
   }
 
-  add_joint_update_entry(JointUpdateEntry &jue){
+  void add_joint_update_entry(JointUpdateEntry &jue){
     joint_update_list.push_back(jue);
   }
-
-
-  ~SampledWindow(){}
-
 };
 
 void print_trace(list<SampledWindow> *);
 void initialize_affinity_data(float,func_t,func_t,func_t);
-//void * update_affinity(void *);
-void sequential_update_affinity(list<SampledWindow>::iterator);
+wsize_t sequential_update_affinity(list<SampledWindow>::iterator);
 void affinityAtExitHandler();
 
 
