@@ -6,6 +6,7 @@
 #include <tr1/unordered_map>
 #include <deque>
 #include <list>
+#include <stdint.h>
 using namespace std;
 
 struct affEntry{
@@ -26,7 +27,7 @@ struct affEntry_hash{
 };
 
 //typedef sparse_hash_set <int, hash<int> > intHashSet;
-typedef std::tr1::unordered_map <const affEntry, int *, affEntry_hash, eqAffEntry> affinityHashMap;
+typedef std::tr1::unordered_map <const affEntry, uint64_t *, affEntry_hash, eqAffEntry> affinityHashMap;
 
 
 typedef enum{
@@ -68,7 +69,7 @@ disjointSet ** disjointSet::sets = 0;
 
 
 struct SampledWindow{
-  int wcount;
+  uint32_t wcount;
   std::list<short> partial_trace_list;
   SampledWindow(const SampledWindow&);
   SampledWindow();

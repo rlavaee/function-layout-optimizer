@@ -13,6 +13,7 @@ long long removed_lists[MAXTHREADS];
 pthread_t consumers[MAXTHREADS];
 pthread_t master;
 long nconsumers;
+int DEBUG;
 
 short totalFuncs, maxWindowSize;
 int memoryLimit;
@@ -29,6 +30,7 @@ affinityHashMap * affEntries[MAXTHREADS];
 affinityHashMap * sum_affEntries;
 std::list<SampledWindow> trace_list;
 
+uint64_t * null_joint_freq = new uint64_t[maxWindowSize+1]();
 bool * contains_func;
 std::list<short>::iterator * func_trace_it;
 std::list<SampledWindow>::iterator * func_window_it;
@@ -44,8 +46,8 @@ std::list<SampledWindow>::iterator tl_window_iter;
 std::list<short>::iterator tl_trace_iter;
 
 //disjointSet *** sets;
-int ** freqs[MAXTHREADS];
-int ** sum_freqs;
+uint64_t ** freqs[MAXTHREADS];
+uint64_t ** sum_freqs;
 
 short prevFunc;
 FILE * graphFile, * debugFile;
@@ -94,8 +96,9 @@ extern "C" void record_function_exec(short FuncNum){
     trace_list.front().partial_trace_list.push_front(FuncNum);
   else
     return;
-
-	//print_trace(&trace_list);
+	
+	if(DEBUG>0)
+		print_trace(&trace_list);
 
 
   if(!contains_func[FuncNum]){
@@ -144,7 +147,7 @@ extern "C" void record_function_exec(short FuncNum){
     	tl_window_iter->partial_trace_list.erase(func_trace_it[FuncNum]);
 
     	if(tl_window_iter->partial_trace_list.empty()){
-      	int temp_wcount=tl_window_iter->wcount;
+      	uint16_t temp_wcount=tl_window_iter->wcount;
       	tl_window_iter--;
       	tl_window_iter->wcount+=temp_wcount;
       	tl_window_iter++;
@@ -173,10 +176,10 @@ void add_threads(){
 		if((nconsumers == 0) || ((added_lists - sum_removed)*maxWindowSize > memoryLimit)){
 			removed_lists[nconsumers]=0;
 			affEntries[nconsumers]=new affinityHashMap();
-			freqs[nconsumers]=new int * [totalFuncs];
+			freqs[nconsumers]=new uint64_t * [totalFuncs];
 
   		for(short i=0;i<totalFuncs;++i)
-    		freqs[nconsumers][i]=new int[maxWindowSize+1]();
+    		freqs[nconsumers][i]=new uint64_t[maxWindowSize+1]();
 
   		pthread_create(&consumers[nconsumers],NULL,update_affinity,(void *)nconsumers );
 			//fprintf(stderr,"Consumer thread %d created.\n",nconsumers);
@@ -328,9 +331,9 @@ void initialize_affinity_data(){
 
 
 void join_all_consumers(){
-	sum_freqs = new int * [totalFuncs];
+	sum_freqs = new uint64_t * [totalFuncs];
 	for(short i=0;i<totalFuncs; ++i)
-		sum_freqs[i]=new int [maxWindowSize+1]();
+		sum_freqs[i]=new uint64_t [maxWindowSize+1]();
 	sum_affEntries=new affinityHashMap();
 
 	for(int thno=0; thno<nconsumers; ++thno){
@@ -338,9 +341,9 @@ void join_all_consumers(){
 		for(affinityHashMap::iterator iter = affEntries[thno]->begin(); iter!=affEntries[thno]->end(); ++iter){
 			//fprintf(stderr,"They got another one %d %d\n",iter->first.first,iter->first.second);
 			affinityHashMap::iterator result=sum_affEntries->find(iter->first);
-			int * freq_array;
+			uint64_t * freq_array;
 			if(result==sum_affEntries->end())
-				(*sum_affEntries)[iter->first]= freq_array=new int[maxWindowSize+1]();
+				(*sum_affEntries)[iter->first]= freq_array=new uint64_t[maxWindowSize+1]();
 			else
 				freq_array=result->second;
 			
@@ -371,47 +374,38 @@ void aggregate_affinity(){
     }
 
   for(iter=sum_affEntries->begin(); iter!=sum_affEntries->end(); ++iter){
-    int * freq_array= iter->second;	  
+    uint64_t * freq_array= iter->second;	  
     for(short wsize=2;wsize<=maxWindowSize;++wsize){
       freq_array[wsize]+=freq_array[wsize-1];
     }
   }
+	
 	char * graphFilePath=(char*) malloc(strlen("graph")+strlen(version_str)+1);
   strcpy(graphFilePath,"graph");
   strcat(graphFilePath,version_str);
 
   graphFile=fopen(graphFilePath,"r");
-  //int prev_sampledWindows=0;
   if(graphFile!=NULL){
-    short u1,u2,wsize;
-		int freq;
-    //fscanf(graphFile,"%d",&prev_sampledWindows);
-    while(fscanf(graphFile,"%hd",&wsize)!=EOF){
-      while(true){
-        fscanf(graphFile,"%hd",&u1);
-        if(u1==-1)
-          break;
-        fscanf(graphFile,"%d",&freq);
-        //fprintf(stderr,"%d %d is %d\n",wsize,u1,freq);
-        //prev_final_freqs[wsize][u1]=freq;
-        sum_freqs[u1][wsize]+=freq;
+    short u1,u2;
+		uint64_t sfreq,jfreq;
+		for(short i=0;i<totalFuncs; ++i){
+			fscanf(graphFile,"(%*hd):");
+			for(short wsize=1; wsize<=maxWindowSize; ++wsize){
+        fscanf(graphFile,"%lu ",&sfreq);
+        sum_freqs[i][wsize]+=sfreq;
       }
-      while(true){
-        fscanf(graphFile,"%hd",&u1);
-        //fprintf(stderr,"u1 is %d\n",u1);
-        if(u1==-1)
-          break;
-        fscanf(graphFile,"%hd %d",&u2,&freq);
-        //fprintf(stderr,"%d %d %d\n",u1,u2,freq);
-        affEntry entryToAdd(u1,u2);
-        //prev_final_affEntries[wsize][entryToAdd]=freq;
-        int * freq_array=(*sum_affEntries)[entryToAdd];
-        if(freq_array==NULL){
-          freq_array= new int[maxWindowSize+1]();
-          (*sum_affEntries)[entryToAdd]=freq_array;
-        }
-
-        freq_array[wsize]+=freq;
+		}
+    while(fscanf(graphFile,"(%hd,%hd):",&u1,&u2)!=EOF){
+			affEntry entryToAdd=affEntry(u1,u2);
+      uint64_t * freq_array=(*sum_affEntries)[entryToAdd];
+			if(freq_array==NULL){
+				freq_array= new uint64_t[maxWindowSize+1]();
+				(*sum_affEntries)[entryToAdd]=freq_array;
+			}
+			//printf("(%hd,%hd)\n",u1,u2);
+			for(short wsize=1; wsize<=maxWindowSize; ++wsize){
+        fscanf(graphFile,"{%lu} ",&jfreq);
+        freq_array[wsize] +=jfreq;
       }
     }
     fclose(graphFile);
@@ -419,26 +413,22 @@ void aggregate_affinity(){
 
 
   graphFile=fopen(graphFilePath,"w+");
-  //sampledWindows+=prev_sampledWindows;
-  //fprintf(graphFile,"%ld\n",sampledWindows);
 
-  for(short wsize=1;wsize<=maxWindowSize;++wsize){
-
-    fprintf(graphFile,"%hd\n",wsize);
-    for(short i=0;i<totalFuncs;++i)
-      fprintf(graphFile,"%hd %d\n",i,sum_freqs[i][wsize]);
-    fprintf(graphFile,"-1\n");
-
+    for(short i=0;i<totalFuncs;++i){
+      fprintf(graphFile,"(%hd):",i);
+			for(short wsize=1; wsize<=maxWindowSize;++wsize)
+				fprintf(graphFile,"%lu ",sum_freqs[i][wsize]);
+    	fprintf(graphFile,"\n");
+		}
     for(iter=sum_affEntries->begin(); iter!=sum_affEntries->end(); ++iter){
-      fprintf(graphFile,"%hd %hd %d\n",iter->first.first,
-          iter->first.second,iter->second[wsize]);
+      fprintf(graphFile,"(%hd,%hd):",iter->first.first,iter->first.second);
+			for(short wsize=1;wsize<=maxWindowSize;++wsize)
+				fprintf(graphFile,"{%lu} ",iter->second[wsize]);
+			fprintf(graphFile,"\n");
     }
 
-    fprintf(graphFile,"-1\n");
-  }
 
   fclose(graphFile);
-
 
 }
 
@@ -540,7 +530,7 @@ void print_trace(list<SampledWindow> * tlist){
   printf("trace list:\n");
   while(window_iter!=tlist->end()){
     trace_iter =  window_iter->partial_trace_list.begin();
-    printf("windows: %d\n",window_iter->wcount);
+    printf("windows: 0x%x\n",window_iter->wcount);
 
     while(trace_iter!=window_iter->partial_trace_list.end()){
       printf("%d ",*trace_iter);
@@ -613,11 +603,11 @@ void * update_affinity(void * threadno_void){
           
           if(FuncNum2!=FuncNum){
             affEntry trace_entry(FuncNum, FuncNum2);
-            int * freq_array;
+            uint64_t * freq_array;
 
             affinityHashMap::iterator  result=affEntries[threadno]->find(trace_entry);
             if(result==affEntries[threadno]->end())
-              (*affEntries[threadno])[trace_entry]= freq_array=new int[maxWindowSize+1]();
+              (*affEntries[threadno])[trace_entry]= freq_array=new uint64_t[maxWindowSize+1]();
             else
               freq_array=result->second;
 
@@ -667,16 +657,22 @@ SampledWindow::SampledWindow(){
 }
 
 SampledWindow::~SampledWindow(){}
-bool affEntry1DCmp(affEntry ae_left, affEntry ae_right){
 
-	int * jointFreq_left = (*sum_affEntries)[ae_left];
-	int * jointFreq_right = (*sum_affEntries)[ae_right];
-	if(jointFreq_left == NULL && jointFreq_right != NULL)
-		return false;
-	if(jointFreq_left != NULL && jointFreq_right == NULL)
-		return true;
-	
-	if(jointFreq_left != NULL){
+uint64_t * GetWithDef(affinityHashMap * m, const affEntry &key, uint64_t * defval) {
+  affinityHashMap::const_iterator it = m->find( key );
+  if ( it == m->end() ) {
+    return defval;
+  }
+  else {
+    return it->second;
+  }
+}
+
+
+bool affEntry1DCmp(affEntry ae_left, affEntry ae_right){
+	 uint64_t * jointFreq_left = GetWithDef(sum_affEntries, ae_left, null_joint_freq);
+  uint64_t * jointFreq_right = GetWithDef(sum_affEntries, ae_right, null_joint_freq);
+
 	int ae_left_val, ae_right_val;
 	
 	float rel_freq_threshold=2.0;
@@ -697,7 +693,6 @@ bool affEntry1DCmp(affEntry ae_left, affEntry ae_right){
 				if(ae_left_val != ae_right_val)
 					return (ae_left_val > ae_right_val);
     }
-	}
 
 	if(ae_left.first != ae_right.first)
 		return (ae_left.first > ae_right.first);
@@ -706,17 +701,11 @@ bool affEntry1DCmp(affEntry ae_left, affEntry ae_right){
 
 }
 
-
 bool affEntry2DCmp(affEntry ae_left, affEntry ae_right){
 
-	int * jointFreq_left = (*sum_affEntries)[ae_left];
-	int * jointFreq_right = (*sum_affEntries)[ae_right];
-	if(jointFreq_left == NULL && jointFreq_right != NULL)
-		return false;
-	if(jointFreq_left != NULL && jointFreq_right == NULL)
-		return true;
-	
-	if(jointFreq_left != NULL){
+  uint64_t * jointFreq_left = GetWithDef(sum_affEntries, ae_left, null_joint_freq);
+  uint64_t * jointFreq_right = GetWithDef(sum_affEntries, ae_right, null_joint_freq);
+
 	int ae_left_val, ae_right_val;
 	
 	short freqlevel;
@@ -742,7 +731,6 @@ bool affEntry2DCmp(affEntry ae_left, affEntry ae_right){
     freqlevel++;
     rel_freq_threshold+=5.0/maxFreqLevel;
   }
-	}
 
 	if(ae_left.first != ae_right.first)
 		return (ae_left.first > ae_right.first);
@@ -895,8 +883,12 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
 
 
 static void save_affinity_environment_variables(void) {
-  const char *SampleRateEnvVar, *MaxWindowSizeEnvVar, *MaxFreqLevelEnvVar, *MemoryLimitEnvVar;
-  
+	const char *SampleRateEnvVar, *MaxWindowSizeEnvVar, *MaxFreqLevelEnvVar, *MemoryLimitEnvVar, *DebugEnvVar;
+
+	if((DebugEnvVar = getenv("DEBUG")) !=NULL){
+		DEBUG = atoi(DebugEnvVar);
+	}
+
 	if ((MemoryLimitEnvVar = getenv("MEMORY_LIMIT")) != NULL) {
     memoryLimit = atoi(MemoryLimitEnvVar);
   }
