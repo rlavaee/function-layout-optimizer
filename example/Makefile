@@ -2,6 +2,7 @@ LEVEL= ..
 PROG=prog
 ABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcall_site_tracing_rt.a
 AABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libadv_call_site_tracing_rt.a
+AWABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libaw_call_site_tracing_rt.a
 FABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libfine_call_site_tracing_rt.a
 CGC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcall_edge_tracing_rt.a
 CGC_LLVM_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMCallEdgeTracing.so
@@ -15,6 +16,7 @@ COMPILED = $(PROG).out
 ABC_TR	= $(PROG).abc_tr.out
 AABC_TR = $(PROG).aabc_tr.out
 FABC_TR = $(PROG).fabc_tr.out
+AWABC_TR = $(PROG).awabc_tr.out
 ABC_OUT	= $(PROG).abc.out
 
 BABC_OUT = $(PROG).babc.out
@@ -23,6 +25,11 @@ ICC_OUT = $(PROG).icc.out
 CGC_OUT = $(PROG).cgc.out
 CGC_TR = $(PROG).cgc_tr.out
 
+
+$(AWABC_TR): $(BITCODED) $(AWABC_RT_LIB) $(ABC_LLVM_LIB)
+	opt -load $(ABC_LLVM_LIB) -trace-call-sites $< -o $@.bc
+	llc $@.bc -o $@.s
+	clang++ $@.s $(AWABC_RT_LIB) -o $@ -lpthread
 
 $(FABC_TR): $(BITCODED) $(FABC_RT_LIB) $(ABC_LLVM_LIB)
 	opt -load $(ABC_LLVM_LIB) -trace-call-sites $< -o $@.bc

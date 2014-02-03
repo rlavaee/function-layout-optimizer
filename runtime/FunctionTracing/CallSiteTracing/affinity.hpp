@@ -27,7 +27,7 @@ struct affEntry_hash{
 };
 
 //typedef sparse_hash_set <int, hash<int> > intHashSet;
-typedef std::tr1::unordered_map <const affEntry, uint64_t *, affEntry_hash, eqAffEntry> affinityHashMap;
+typedef std::tr1::unordered_map <const affEntry, uint32_t *, affEntry_hash, eqAffEntry> affinityHashMap;
 
 
 typedef enum{

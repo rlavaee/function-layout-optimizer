@@ -17,32 +17,45 @@ uint32_t sampleMask;
 func_t maxFreqLevel;
 
 JointFreqMap * joint_freqs;
-JointFreqRangeMap * joint_freq_ranges;
-list<SampledWindow> trace_list;
+//JointFreqRangeMap * joint_freq_ranges;
+//list<SampledWindow> trace_list;
+list<func_t> trace_list;
 
 bool * contains_func;
 list<func_t>::iterator * func_trace_it;
-list<SampledWindow>::iterator * func_window_it;
+//list<SampledWindow>::iterator * func_window_it;
 wsize_t trace_list_size;
 
-list<SampledWindow>::iterator window_iter;
-list<SampledWindow>::iterator top_window_iter;
+//list<SampledWindow>::iterator window_iter;
+//list<SampledWindow>::iterator top_window_iter;
 list<func_t>::iterator func_iter;
 list<func_t>::iterator partial_trace_list_end;
 list<func_t> * last_window_trace_list;
 
-uint32_t *** single_freq_ranges; 
-uint32_t ** single_freqs;
+//uint32_t *** single_freq_ranges; 
 
+uint32_t * single_freqs;
+uint16_t * age;
+uint16_t ltime;
 
 int prevFunc;
 FILE * graphFile, * debugFile;
 
-uint32_t * null_joint_freq = new uint32_t[maxWindowSize+1]();
-const char * version_str=".fabc";
+//uint32_t * null_joint_freq = new uint32_t[maxWindowSize+1]();
+const char * version_str=".awabc";
 
 sem_t affinity_sem;
+bool misscount_cmp(const func_t &f1, const func_t &f2){
+	if(single_freqs[f1] > single_freqs[f2])
+		return true;
+	
+	if(single_freqs[f1] < single_freqs[f2])
+		return false;
+	
+	return (f1 < f2);
+}
 
+/*
 void create_single_freqs(){
   for(func_t f=0; f<totalFuncs; ++f)
     for(wsize_t i=1; i<= maxWindowSize; ++i)
@@ -50,6 +63,7 @@ void create_single_freqs(){
         for(wsize_t k=i; k<=j; ++k)
           single_freqs[f][k]+=single_freq_ranges[f][i][j];
 }
+
 
 void create_joint_freqs(){
   JointFreqRangeMap::iterator it_end= joint_freq_ranges->end();
@@ -105,13 +119,27 @@ void commit_freq_updates(SampledWindow &sw, wsize_t max_wsize){
     }
   }
 }
+*/
 
+void increase_age(){
+	for(func_iter = trace_list.begin(); func_iter!=trace_list.end(); ++func_iter)
+		age[*func_iter] >>=  1;
+}
 extern "C" void record_function_exec(func_t FuncNum){
-  if(prevFunc==FuncNum)
+	age[FuncNum] |= 0x8000;
+	ltime++;
+	if(ltime==0x800){
+		print_trace();
+		increase_age();
+		ltime=0;
+	}
+  if(prevFunc==FuncNum){
     return;
-  else
+  }else
     prevFunc=FuncNum;
 
+	trace_list.push_front(FuncNum);
+	/*
   //fprintf(traceFile,"%hd\n",FuncNum);
   uint32_t r=rand();
   bool sampled=false;
@@ -120,27 +148,25 @@ extern "C" void record_function_exec(func_t FuncNum){
     trace_list.push_front(sw);
     sampled=true;
   }
-
-
+*/
+/*
   if(trace_list_size!=0 || sampled)
     trace_list.front().partial_trace_list.push_front(FuncNum);
   else
     return;
-
 
   if(DEBUG>0){
     if(sampled)
       fprintf(debugFile,"new window\n");
     print_trace(&trace_list);
   }
-
+*/
   if(!contains_func[FuncNum]){
-    trace_list_size++;
-    trace_list.front().wsize++;
+    //trace_list.front().wsize++;
 
-    if(trace_list_size > maxWindowSize){
-      commit_freq_updates(trace_list.back(),trace_list_size-1);
-      last_window_trace_list= &(trace_list.back().partial_trace_list);			
+    if(trace_list_size >= maxWindowSize){
+     // commit_freq_updates(trace_list.back(),trace_list_size-1);
+      /*last_window_trace_list= &(trace_list.back().partial_trace_list);			
 
       while(!last_window_trace_list->empty()){
         func_t oldFuncNum=last_window_trace_list->front();
@@ -148,70 +174,44 @@ extern "C" void record_function_exec(func_t FuncNum){
         last_window_trace_list->pop_front();
       }
       trace_list_size-=trace_list.back().wsize;
-
+*/
+			contains_func[trace_list.back()]=false;
+			age[trace_list.back()]=0;
       trace_list.pop_back();
-    }
+    }else
+			trace_list_size++;
 
-    if(trace_list_size>0){
+//    if(trace_list_size>0){
       sequential_update_affinity(trace_list.end());
       contains_func[FuncNum]=true;
-      func_window_it[FuncNum] = trace_list.begin();
-      func_trace_it[FuncNum] = trace_list.begin()->partial_trace_list.begin();
-    }
+      //func_window_it[FuncNum] = trace_list.begin();
+      //func_trace_it[FuncNum] = trace_list.begin()->partial_trace_list.begin();
+			func_trace_it[FuncNum] = trace_list.begin();
+    //}
 
   }else{
-    trace_list.front().wsize++;
-    func_window_it[FuncNum]->wsize--;
-		wsize_t top_wsize = 0;
+    //trace_list.front().wsize++;
+    //func_window_it[FuncNum]->wsize--;
+		//wsize_t top_wsize = 0;
+		/*
     if(trace_list.begin()!=func_window_it[FuncNum]){
       top_wsize = sequential_update_affinity(func_window_it[FuncNum]);
-    }
-    window_iter=func_window_it[FuncNum];
-    window_iter->partial_trace_list.erase(func_trace_it[FuncNum]);
+    }*/
+    //window_iter=func_window_it[FuncNum];
+    //window_iter->partial_trace_list.erase(func_trace_it[FuncNum]);
 
-    if(window_iter->partial_trace_list.empty()){
-      commit_freq_updates(*window_iter,top_wsize);
-      trace_list.erase(window_iter);
-    }
+    //if(window_iter->partial_trace_list.empty()){
+      //commit_freq_updates(*window_iter,top_wsize);
+			//sequential_update_affinity(func_trace_it[FuncNum]);
+      trace_list.erase(func_trace_it[FuncNum]);
+    //}
 
-    func_window_it[FuncNum] = trace_list.begin();
-    func_trace_it[FuncNum] = trace_list.begin()->partial_trace_list.begin();	
+    //func_window_it[FuncNum] = trace_list.begin();
+    func_trace_it[FuncNum] = trace_list.begin();
+		//->partial_trace_list.begin();	
   }
 
 
-}
-
-void print_optimal_layout(){
-  func_t * layout = new func_t[totalFuncs];
-  int count=0;
-  for(int i=0; i< totalFuncs; ++i){
-    //printf("i is now %d\n",i);
-    if(disjointSet::sets[i]){
-      disjointSet * thisSet=disjointSet::sets[i];
-      for(deque<func_t>::iterator it=disjointSet::sets[i]->elements.begin(), 
-          it_end=disjointSet::sets[i]->elements.end()
-          ; it!=it_end ; ++it){
-        //printf("this is *it:%d\n",*it);
-        layout[count++]=*it;
-        disjointSet::sets[*it]=0;
-      }
-      thisSet->elements.clear();
-      delete thisSet;
-    }
-  }
-
-  char affinityFilePath[80];
-  strcpy(affinityFilePath,"layout");
-  //strcat(affinityFilePath,(affEntryCmp==&affEntry1DCmp)?("1D"):("2D"));
-  strcat(affinityFilePath,version_str);
-  FILE *layoutFile = fopen(affinityFilePath,"w");  
-
-  for(int i=0;i<totalFuncs;++i){
-    if(i%20==0)
-      fprintf(layoutFile, "\n");
-    fprintf(layoutFile, "%u ",layout[i]);
-  }
-  fclose(layoutFile);
 }
 
 void print_optimal_layouts(){
@@ -258,22 +258,24 @@ void initialize_affinity_data(){
 	srand(1);
 
   joint_freqs=new JointFreqMap();
-  joint_freq_ranges= new JointFreqRangeMap();
+  //joint_freq_ranges= new JointFreqRangeMap();
 
-  single_freqs=new uint32_t* [totalFuncs];
-  single_freq_ranges = new uint32_t** [totalFuncs];
+  single_freqs=new uint32_t [totalFuncs]();
+	age = new uint16_t [totalFuncs]();
+  //single_freq_ranges = new uint32_t** [totalFuncs];
 
+/*
   for(func_t f=0;f<totalFuncs;++f){
     single_freqs[f]=new uint32_t[maxWindowSize+1]();
     single_freq_ranges[f]=new uint32_t*[maxWindowSize+1];
     for(wsize_t i=1; i<=maxWindowSize; i++)
       single_freq_ranges[f][i]=new uint32_t[maxWindowSize+1]();
   }
-
+*/
   contains_func = new bool [totalFuncs]();
 
 
-  func_window_it = new list<SampledWindow>::iterator [totalFuncs];
+  //func_window_it = new list<SampledWindow>::iterator [totalFuncs];
   func_trace_it = new list<func_t>::iterator  [totalFuncs];
 
   if(DEBUG > 9)
@@ -294,16 +296,16 @@ void aggregate_affinity(){
   graphFile=fopen(graphFilePath,"r");
   if(graphFile!=NULL){
     func_t u1,u2;
-    uint32_t sfreq,jfreq;
+    uint32_t sfreq;
+		uint64_t jfreq;
     for(func_t i=0;i<totalFuncs; ++i){
-      fscanf(graphFile,"(%*hd):");
-      for(func_t wsize=1; wsize<=maxWindowSize; ++wsize){
-        fscanf(graphFile,"%u ",&sfreq);
-        single_freqs[i][wsize]+=sfreq;
-      }
+      fscanf(graphFile,"(%*hd):%u\n",&sfreq);
+			single_freqs[i]+=sfreq;
     }
-    while(fscanf(graphFile,"(%hd,%hd):",&u1,&u2)!=EOF){
+    while(fscanf(graphFile,"(%hd,%hd):%lu\n",&u1,&u2,&jfreq)!=EOF){
       funcpair_t entryToAdd=funcpair_t(u1,u2);
+			(*joint_freqs)[entryToAdd]+=jfreq;
+			/*
       uint32_t * freq_array=(*joint_freqs)[entryToAdd];
       if(freq_array==NULL){
         freq_array= new uint32_t[maxWindowSize+1]();
@@ -313,7 +315,8 @@ void aggregate_affinity(){
       for(func_t wsize=1; wsize<=maxWindowSize; ++wsize){
         fscanf(graphFile,"{%u} ",&jfreq);
         freq_array[wsize] +=jfreq;
-      }
+      }*/
+
     }
     fclose(graphFile);
   }
@@ -322,67 +325,217 @@ void aggregate_affinity(){
   graphFile=fopen(graphFilePath,"w+");
 
   for(func_t i=0;i<totalFuncs;++i){
-    fprintf(graphFile,"(%hd):",i);
-    for(func_t wsize=1; wsize<=maxWindowSize;++wsize)
-      fprintf(graphFile,"%u ",single_freqs[i][wsize]);
-    fprintf(graphFile,"\n");
+    fprintf(graphFile,"(%hd):%u\n",i,single_freqs[i]);
   }
-  for(iter=joint_freqs->begin(); iter!=joint_freqs->end(); ++iter){
-    fprintf(graphFile,"(%hd,%hd):",iter->first.first,iter->first.second);
-    for(func_t wsize=1;wsize<=maxWindowSize;++wsize)
-      fprintf(graphFile,"{%u} ",iter->second[wsize]);
-    fprintf(graphFile,"\n");
-  }
+  for(iter=joint_freqs->begin(); iter!=joint_freqs->end(); ++iter)
+    fprintf(graphFile,"(%hd,%hd):%lu\n",iter->first.first,iter->first.second,iter->second);
 
 
   fclose(graphFile);
+}
+
+vector<Prefetcher> * all_saviors, * all_savees;
+uint32_t current_save, opt_save;
+bool * has_saved, * is_saved, * needs_savior;
+vector<Prefetcher>::iterator * savior, * savee;
+func_t * to_save;
+func_t total_savable;
+
+
+bool simple_cmp(uint32_t a, uint32_t b){ return (a>b);}
+/*
+uint32_t current_upbound(){
+	//func_t to_save_rm = 0;
+	uint32_t save_sum =0 ;
+	for(func_t i=0;i<total_savable; ++i){
+		func_t fid=to_save[i];
+		if(!is_saved[fid] && needs_savior[fid]){
+			vector<Prefetcher>::iterator savior_it, savior_it_end;
+			for(savior_it=all_saviors[fid].begin(), savior_it_end = all_saviors[fid].end(); savior_it != savior_it_end; ++savior_it){
+				if(!has_saved[savior_it->savior]){
+					save_sum += savior_it->savecount;
+					//to_save_rm++;
+					break;
+				}
+			}
+		}
+	//}
+
+
+	//vector<uint32_t> all_saviers_max_gains;
+	//for(func_t fid=0;fid<total_savable; ++fid){	
+		if(!has_saved[fid]){
+			vector<Prefetcher>::iterator savee_it, savee_it_end;
+			for(savee_it=all_savees[fid].begin(), savee_it_end = all_savees[fid].end(); savee_it != savee_it_end; ++savee_it){
+				if(!is_saved[savee_it->savee]){
+					save_sum+= savee_it->savecount;
+					//all_saviers_max_gains.push_back(savee_it->savecount);
+					break;
+				}
+			}
+		}
+	}
+	save_sum = save_sum+current_save;
+	return save_sum/2+1;
+}
+*/
+
+void save_miss_count(func_t f_i, func_t total_to_save){
+	if(total_to_save == 0){
+			//printf("better update:%u\n",current_save);
+			opt_save = current_save;
+			return;
+	}
+	vector<Prefetcher>::iterator savior_it, savior_it_end;
+			
+			for(savior_it = all_saviors[to_save[f_i]].begin(), savior_it_end = all_saviors[to_save[f_i]].end(); savior_it != savior_it_end ;savior_it++){
+				if(!has_saved[savior_it->savior]){
+					savior[to_save[f_i]]=savior_it;
+					savee[savior_it->savior]=savior_it;
+					current_save+=savior_it->savecount;
+					has_saved[savior_it->savior]=true;
+					is_saved[to_save[f_i]]=true;
+				//	uint32_t upbound;
+					//if(!opt_save_set){ //(total_to_save*2 > total_savable) || (total_to_save%2 == 0))
+						return save_miss_count(f_i+1,total_to_save-1);
+					/*}else if((upbound =current_upbound()) > opt_save){
+						save_miss_count(f_i+1,total_to_save-1);
+					}else{
+						printf("Pruned at %hu: current: %u, upbound:%u, opt:%u\n",f_i,current_save,upbound,opt_save);
+					}
+					is_saved[to_save[f_i]]=false;
+					has_saved[savior_it->savior]=false;
+					current_save-=savior_it->savecount;
+					*/
+				}
+			}
+			
+			is_saved[to_save[f_i]]=true;
+			needs_savior[to_save[f_i]]=false;
+			return save_miss_count(f_i+1,total_to_save-1);
 }
 
 /* This function builds the affinity groups based on the affinity table 
    and prints out the results */
 void find_affinity_groups(){
 
-  vector<funcpair_t> all_affEntry_iters;
+	savior = new vector<Prefetcher>::iterator [totalFuncs];
+	savee = new vector<Prefetcher>::iterator [totalFuncs];
+
+	is_saved = new bool[totalFuncs]();
+	has_saved = new bool[totalFuncs]();
+	needs_savior = new bool[totalFuncs];
+
+	to_save = new func_t [totalFuncs];
+	
+	total_savable = 0;
+	for(func_t i=0; i<totalFuncs; ++i){
+		//printf("fid %d-> single_freqs: %d\n",i,single_freqs[i]);
+		if(single_freqs[i] == 0){
+			is_saved[i]=true;
+			needs_savior[i]=false;
+		}
+		else{
+			to_save[total_savable++]=i;
+			needs_savior[i]=true;
+		}
+	}
+
+	sort(to_save, to_save+total_savable, misscount_cmp);
+
+
+	all_saviors = new vector<Prefetcher> [totalFuncs];
+	all_savees = new vector<Prefetcher> [totalFuncs];
   for(JointFreqMap::iterator iter=joint_freqs->begin(); iter!=joint_freqs->end(); ++iter){
-    if(iter->first.first < iter->first.second)
-      all_affEntry_iters.push_back(iter->first);
+		if(needs_savior[iter->first.first]){
+			Prefetcher p(iter->first.first,iter->first.second,single_freqs[iter->first.first],iter->second);
+			all_saviors[iter->first.first].push_back(p);
+			all_savees[iter->first.second].push_back(p);
+		}
   }
-  comparisonFile = fopen("compare.txt","w");
-  sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),affEntryCmp);
-  fclose(comparisonFile);
-  comparisonFile=NULL;
 
-  orderFile = fopen("order.txt","w");
+	for(func_t i=0; i<totalFuncs; ++i){
+			//printf("(savior[%hu]: before purify: %zu\n",i,all_saviors[i].size());
+			all_saviors[i].erase(partition(all_saviors[i].begin(), all_saviors[i].end(), Prefetcher::is_significant),all_saviors[i].end());
+			//printf("after purify: %zu\n",all_saviors[i].size());
+			sort(all_saviors[i].begin(), all_saviors[i].end(), Prefetcher::prefetcher_cmp);
+			
+			//printf("savee[%hu]: before purify: %zu\n",i,all_savees[i].size());
+			all_savees[i].erase(partition(all_savees[i].begin(), all_savees[i].end(), Prefetcher::is_significant),all_savees[i].end());
+			//printf("after purify: %zu\n",all_savees[i].size());
+			sort(all_savees[i].begin(), all_savees[i].end(), Prefetcher::prefetcher_cmp);
+		}
 
-
-  disjointSet::sets = new disjointSet *[totalFuncs];
-  for(func_t i=0; i<totalFuncs; ++i)
-    disjointSet::init_new_set(i);
-
-  for(vector<funcpair_t>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
-    fprintf(orderFile,"(%d,%d)\n",iter->first,iter->second);
-    disjointSet::mergeSets(iter->first, iter->second);
-  } 
-
-  fclose(orderFile);
-
+		save_miss_count(0,total_savable);
+		//printf("this the optimal:%d\n",opt_save);
 }
+
+void print_optimal_layout(){
+  func_t * layout = new func_t[totalFuncs];	
+	func_t count = 0;
+	int * marked = new int[totalFuncs]();
+	for(func_t fid=0;fid<totalFuncs; ++fid){
+		func_t ffid=fid;
+		while(needs_savior[ffid] && marked[ffid]==0){
+			marked[ffid]=1;
+			ffid = savior[ffid]->savior;
+		}
+		if(marked[ffid]!=2){
+			layout[count++]=ffid;
+			marked[ffid]=2;
+			//printf("%hu ",ffid);
+			while(has_saved[ffid]){
+				ffid = savee[ffid]->savee;
+				if(marked[ffid]!=2){
+					layout[count++]=ffid;
+					//printf("%hu ",ffid);
+					marked[ffid]=2;
+				}else
+					break;
+			}
+			//printf("---------------\n");
+		}
+	}
+
+	for(func_t fid=0; fid<totalFuncs; ++fid)
+		if(!marked[fid]){
+			marked[fid]=true;
+			layout[count++]=fid;
+		}
+	
+	assert(count == totalFuncs);
+
+  char affinityFilePath[80];
+  strcpy(affinityFilePath,"layout");
+  strcat(affinityFilePath,version_str);
+  FILE *layoutFile = fopen(affinityFilePath,"w");  
+
+  for(int i=0;i<totalFuncs;++i){
+    if(i%20==0)
+      fprintf(layoutFile, "\n");
+    fprintf(layoutFile, "%u ",layout[i]);
+  }
+  fclose(layoutFile);
+}
+
 
 /* Must be called at exit*/
 void affinityAtExitHandler(){
 	if(DEBUG>9)
 		fclose(traceFile);
 	wsize_t top_wsize=0;
+	/*
 	while(!trace_list.empty()){
 		SampledWindow sw = trace_list.front();
 		top_wsize += sw.wsize;
-		commit_freq_updates(sw,top_wsize);
+		//commit_freq_updates(sw,top_wsize);
 		trace_list.pop_front();
 	}
+	*/
 	if(DEBUG>0)
 		fclose(debugFile);
-  create_joint_freqs();
-  create_single_freqs();
+  //create_joint_freqs();
+  //create_single_freqs();
   aggregate_affinity();
 
   affEntryCmp=&affEntry2DCmp;
@@ -390,8 +543,14 @@ void affinityAtExitHandler(){
   print_optimal_layout();
 
 }
+void print_trace(){
+	for(func_iter = trace_list.begin(); func_iter!=trace_list.end(); ++func_iter)
+		fprintf(debugFile,"(%hu: %xu) ",*func_iter,age[*func_iter]);
+	
+	fprintf(debugFile,"\n");
+}
 
-
+/*
 void print_trace(list<SampledWindow> * tlist){
   list<SampledWindow>::iterator window_iter=tlist->begin();
 
@@ -411,37 +570,42 @@ void print_trace(list<SampledWindow> * tlist){
     window_iter++;
   }
 }
+*/
 
 
+void sequential_update_affinity(list<func_t>::iterator grown_list_end){
 
-
-wsize_t sequential_update_affinity(list<SampledWindow>::iterator grown_list_end){
-
-  wsize_t top_wsize=0;
-  wsize_t wsize;
-  top_window_iter = trace_list.begin();
-  func_iter = top_window_iter->partial_trace_list.begin();
+  //wsize_t top_wsize=0;
+  wsize_t wsize=1;
+  //top_window_iter = trace_list.begin();
+  //func_iter = top_window_iter->partial_trace_list.begin();
+	func_iter = trace_list.begin();
 
   func_t FuncNum= * func_iter;
+	single_freqs[FuncNum]++;
+	func_iter++;
 
-  while(top_window_iter!= grown_list_end){
+	while(func_iter!=grown_list_end){
+		(*joint_freqs)[funcpair_t(FuncNum,*func_iter)]+= age[*func_iter];
+		++func_iter;
+	}
+/*
+  //while(top_window_iter!= grown_list_end){
 
     
-    func_iter = top_window_iter->partial_trace_list.begin();
+    //func_iter = top_window_iter->partial_trace_list.begin();
 
-    partial_trace_list_end = top_window_iter->partial_trace_list.end();
-    while(func_iter != partial_trace_list_end){
+    //partial_trace_list_end = top_window_iter->partial_trace_list.end();
+    //while(func_iter != partial_trace_list_end){
 
-      func_t oldFuncNum= * func_iter;
+      //func_t oldFuncNum= * func_iter;
       if(oldFuncNum!=FuncNum){
         window_iter = top_window_iter;
         wsize=top_wsize;
 
         while(window_iter != grown_list_end){
           wsize+=window_iter->wsize;
-          JointUpdateEntry jue(unordered_funcpair(FuncNum,oldFuncNum),wsize);
-					window_iter->add_joint_update_entry(jue);
-					
+					(*joint_freqs)[funcpair_t(FuncNum,oldFuncNum)]++;
 					if(DEBUG>1){
 						fprintf(debugFile,"****************\n");
 						fprintf(debugFile,"update pair: (%d,%d)[%d..]++\n",oldFuncNum,FuncNum,wsize);
@@ -454,9 +618,12 @@ wsize_t sequential_update_affinity(list<SampledWindow>::iterator grown_list_end)
    	}
 		
     top_wsize += top_window_iter->wsize;
+		*/
+		/*
 		SingleUpdateEntry sue(FuncNum,top_wsize);
     top_window_iter->add_single_update_entry(sue);
-
+		
+		single_freqs[FuncNum]++;
     if(DEBUG>1){
       fprintf(debugFile,"################\n");
       fprintf(debugFile,"update single: %d[%d..]++\n",FuncNum,top_wsize);
@@ -466,6 +633,7 @@ wsize_t sequential_update_affinity(list<SampledWindow>::iterator grown_list_end)
 	}
 	
 	return top_wsize;
+	*/
 
 } 
 
@@ -512,7 +680,7 @@ wsize_t sequential_update_affinity(list<SampledWindow>::iterator grown_list_end)
    }
    */
 
-uint32_t * GetWithDef(JointFreqMap * m, const funcpair_t &key, uint32_t * defval) {
+uint32_t GetWithDef(JointFreqMap * m, const funcpair_t &key, uint32_t defval) {
   JointFreqMap::const_iterator it = m->find( key );
   if ( it == m->end() ) {
     return defval;
@@ -523,17 +691,47 @@ uint32_t * GetWithDef(JointFreqMap * m, const funcpair_t &key, uint32_t * defval
 }
 
 bool affEntry2DCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
-  uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
-  uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
+  //uint32_t jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
+  //uint32_t jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
+	
+	//if(funcpair_eq()(left_pair,right_pair))
+	//	return (&left_pair > &right_pair);
 
+	uint64_t left_pair_jf = (*joint_freqs)[left_pair];
+	uint64_t left_pair_rev_jf = (*joint_freqs)[reverse_pair(left_pair)];
+	uint64_t right_pair_jf = (*joint_freqs)[right_pair];
+	uint64_t right_pair_rev_jf = (*joint_freqs)[reverse_pair(right_pair)];
+	uint64_t total_left_pair = left_pair_jf + left_pair_rev_jf;
+	uint64_t total_right_pair = right_pair_jf + right_pair_rev_jf;
+
+	if(comparisonFile!=NULL){
+		fprintf(comparisonFile, "(%hd,%hd):%lu",left_pair.first,left_pair.second,total_left_pair);
+		fprintf(comparisonFile,(total_left_pair > total_right_pair)?(">"):("<"));
+		fprintf(comparisonFile, " (%hd,%hd):%lu\n",right_pair.first,right_pair.second,total_right_pair);
+	}
+
+	if (total_left_pair < total_right_pair)
+		return true;
+	
+	if (total_left_pair > total_right_pair)
+		return false;
+
+	if(left_pair.first < right_pair.first)
+		return true;
+	else
+		return (left_pair.second < right_pair.second);
+
+
+	//return (((float)(*joint_freqs)[left_pair])/single_freqs[left_pair.first] +((float)(*joint_freqs)[reverse_pair(left_pair)])/single_freqs[left_pair.second]) > (((float)(*joint_freqs)[right_pair])/single_freqs[right_pair.first]+((float)(*joint_freqs)[reverse_pair(right_pair)])/single_freqs[right_pair.second]);
+	/*
   int left_pair_val, right_pair_val;
 
   short freqlevel;
   float rel_freq_threshold;
   for(freqlevel=0, rel_freq_threshold=1.0; freqlevel<maxFreqLevel; ++freqlevel, rel_freq_threshold+=5.0/maxFreqLevel){
-    for(short wsize=2;wsize<=maxWindowSize;++wsize){
+    //for(short wsize=2;wsize<=maxWindowSize;++wsize){
 
-      if((rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.first][wsize]) && 
+      if((rel_freq_threshold*jointFreq_left[wsize] >= single_freqs[left_pair.first][wsize]) && 
           (rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.second][wsize]))
         left_pair_val = 1;
       else
@@ -547,7 +745,7 @@ bool affEntry2DCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
 
       if(left_pair_val != right_pair_val)
         return (left_pair_val > right_pair_val);
-    }
+    //}
     freqlevel++;
     rel_freq_threshold+=5.0/maxFreqLevel;
   }
@@ -556,6 +754,7 @@ bool affEntry2DCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
     return (left_pair.first > right_pair.first);
 
   return left_pair.second > right_pair.second;
+	*/
 
 }
 
@@ -569,17 +768,17 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
   disjointSet * mergee = (set1->size()<set2->size())?(set1):(set2);
 
 
-  funcpair_t frontMerger_backMergee(merger->elements.front(), mergee->elements.back());
-  funcpair_t backMerger_backMergee(merger->elements.back(), mergee->elements.back());
-  funcpair_t backMerger_frontMergee(merger->elements.back(), mergee->elements.front());
-  funcpair_t frontMerger_frontMergee(merger->elements.front(), mergee->elements.front());
+  funcpair_t frontMerger_backMergee = unordered_funcpair(merger->elements.front(), mergee->elements.back());
+  funcpair_t backMerger_backMergee = unordered_funcpair(merger->elements.back(), mergee->elements.back());
+  funcpair_t backMerger_frontMergee = unordered_funcpair (merger->elements.back(), mergee->elements.front());
+  funcpair_t frontMerger_frontMergee = unordered_funcpair (merger->elements.front(), mergee->elements.front());
   funcpair_t conAffEntriesArray[4]={frontMerger_frontMergee, frontMerger_backMergee, backMerger_frontMergee, backMerger_backMergee};
   vector<funcpair_t> conAffEntries(conAffEntriesArray,conAffEntriesArray+4);
   sort(conAffEntries.begin(), conAffEntries.end(), affEntryCmp);
 
-  assert(affEntryCmp(conAffEntries[0],conAffEntries[1]) || (conAffEntries[0]==conAffEntries[1]));
-  assert(affEntryCmp(conAffEntries[1],conAffEntries[2]) || (conAffEntries[1]==conAffEntries[2]));
-  assert(affEntryCmp(conAffEntries[2],conAffEntries[3]) || (conAffEntries[2]==conAffEntries[3]));
+  assert(affEntryCmp(conAffEntries[0],conAffEntries[1]) || funcpair_eq()(conAffEntries[0],conAffEntries[1]));
+  assert(affEntryCmp(conAffEntries[1],conAffEntries[2]) || funcpair_eq()(conAffEntries[1],conAffEntries[2]));
+  assert(affEntryCmp(conAffEntries[2],conAffEntries[3]) || funcpair_eq()(conAffEntries[2],conAffEntries[3]));
 
   bool con_mergee_front = (conAffEntries[0] == backMerger_frontMergee) || (conAffEntries[0] == frontMerger_frontMergee);
   bool con_merger_front = (conAffEntries[0] == frontMerger_frontMergee) || (conAffEntries[0] == frontMerger_backMergee);
