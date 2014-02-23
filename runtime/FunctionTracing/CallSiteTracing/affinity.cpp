@@ -8,6 +8,7 @@
 #include <vector>
 #define MAXTHREADS 100
 
+short prevFunc = -2;
 long long added_lists=0;
 long long removed_lists[MAXTHREADS];
 pthread_t consumers[MAXTHREADS];
@@ -15,7 +16,6 @@ pthread_t master;
 long nconsumers;
 int DEBUG;
 
-short totalFuncs, maxWindowSize;
 int memoryLimit;
 //long sampledWindows;
 unsigned totalBBs;
@@ -49,7 +49,6 @@ std::list<short>::iterator tl_trace_iter;
 uint32_t ** freqs[MAXTHREADS];
 uint32_t ** sum_freqs;
 
-short prevFunc;
 FILE * graphFile, * debugFile, * orderFile, *comparisonFile;
 
 const char * version_str=".abc";
@@ -70,11 +69,8 @@ void push_into_update_queue (std::list<SampledWindow> * trace_list_to_update){
 //using google::sparse_hash_set;
 //using std::tr1::hash;
 extern "C" void record_function_exec(short FuncNum){
-	if(affEntries==NULL)
+	if(prevFunc==-2)
 		return;
-
-  //printf("trace_list is:\n");
-	
 	if(prevFunc==FuncNum)
 		return;
 	else
@@ -190,45 +186,7 @@ void add_threads(){
 		}
 	}
 }
-/*struct AffinityToIntSerializer {
-  bool operator()(FILE * fp, const std::pair<const affEntry, int>& value) const{
-  if((fwrite(&value.first.bb1, sizeof(value.first.bb1), 1, fp) != 1) || (fwrite(&value.first.bb2, sizeof(value.first.bb2), 1, fp)!=1) )
-  return false;
-  if(fwrite(&value.second, sizeof(value.second), 1, fp) != 1)
-  return false;
-  return true;
-  }
 
-  bool operator()(FILE* fp, std::pair<const affEntry, int>* value)const{
-  if(fread(const_cast<int*>(&value->first.bb1), sizeof(value->first.bb1), 1, fp) != 1)
-  return false;
-  if(fread(const_cast<int*>(&value->first.bb2), sizeof(value->first.bb2), 1, fp) != 1)
-  return false;
-  if(fread(const_cast<int*>(&value->second), sizeof(value->second), 1, fp) != 1)
-  return false;
-  }
-  };*/
-
-/*
-int unitcmp(const void * left, const void * right){
-  const int * ileft=(const int *) left;
-  const int * iright=(const int *) right;
-  int wsize=maxWindowSize;
-
-  int freqlevel=maxFreqLevel-1;
-  //fprintf(stderr,"%d %d %d %d %d\n",*ileft,*iright,find(&sets[freqlevel][wsize][hlevel][*ileft])->id,find(&sets[freqlevel][wsize][hlevel][*iright])->id);
-  while(sets[freqlevel][wsize][*ileft].find()->id==sets[freqlevel][wsize][*iright].find()->id){
-    //fprintf(stderr,"%d %d %d %d %d\n",freqlevel,wsize,hlevel,*ileft,*iright);
-    wsize--;
-    if(wsize<1){
-      freqlevel--;
-      wsize=maxWindowSize;
-    }
-  }
-
-  return sets[freqlevel][wsize][*ileft].find()->id - sets[freqlevel][wsize][*iright].find()->id;
-}
-*/
 void print_optimal_layout(){
 	short * layout = new short[totalFuncs];
 	int count=0;
@@ -250,8 +208,8 @@ void print_optimal_layout(){
 
 	char affinityFilePath[80];
 	strcpy(affinityFilePath,"layout");
-	//strcat(affinityFilePath,(affEntryCmp==affEntry1DCmp)?("1D"):("2D"));
 	strcat(affinityFilePath,version_str);
+	strcat(affinityFilePath,(affEntryCmp==affEntry1DCmp)?(".1D"):(".2D"));
   FILE *layoutFile = fopen(affinityFilePath,"w");  
 
   for(int i=0;i<totalFuncs;++i){
@@ -723,7 +681,7 @@ bool affEntry2DCmp(affEntry ae_left, affEntry ae_right){
 	
 	short freqlevel;
 	float rel_freq_threshold;
-  for(freqlevel=0, rel_freq_threshold=1.0; freqlevel<maxFreqLevel; ++freqlevel, rel_freq_threshold+=5.0/maxFreqLevel){
+  for(freqlevel=0, rel_freq_threshold=1.0; freqlevel<maxFreqLevel; ++freqlevel, rel_freq_threshold+=10.0/maxFreqLevel){
     for(short wsize=2;wsize<=maxWindowSize;++wsize){
 			
         if((rel_freq_threshold*(jointFreq_left[wsize]) >= sum_freqs[ae_left.first][wsize]) && 
@@ -741,8 +699,6 @@ bool affEntry2DCmp(affEntry ae_left, affEntry ae_right){
 				if(ae_left_val != ae_right_val)
 					return (ae_left_val > ae_right_val);
     }
-    freqlevel++;
-    rel_freq_threshold+=5.0/maxFreqLevel;
   }
 
 	if(ae_left.first != ae_right.first)
@@ -785,57 +741,8 @@ bool eqAffEntry::operator()(affEntry const& entry1, affEntry const& entry2) cons
 
 
 
-size_t affEntry_hash::operator()(affEntry const& entry)const{
-  //return MurmurHash2(&entry,sizeof(entry),5381);
-  return entry.first*5381+entry.second;
-}
 
 
-
-
-
-/*
-void disjointSet::initSet(unsigned _id){
-  id=_id;
-  parent = this;
-  rank=0;
-  size=1;
-}
-
-
-void disjointSet::unionSet(disjointSet* set2){
-
-  disjointSet * root1=this->find();
-  disjointSet * root2=set2->find();
-  if(root1==root2)
-    return;
-
-  //x and y are not already in the same set. merge them.
-  if(root1->rank < root2->rank){
-    root1->parent=root2;
-    root2->size+=root1->size;
-  }else if(root1->rank > root2->rank){
-    root2->parent=root1;
-    root1->size+=root2->size;
-  }else{
-    root2->parent=root1;
-    root1->rank++;
-    root1->size+=root2->size;
-  }
-}
-
-unsigned disjointSet::getSize(){
-  return find()->size;
-}
-
-disjointSet* disjointSet::find(){
-  //fprintf(stderr,"%x %d\n",set,set->id);
-  if(this->parent!=this){
-    this->parent=this->parent->find();
-  }
-  return this->parent;
-}
-*/
 void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
 
 		disjointSet * merger = (set1->size()>=set2->size())?(set1):(set2);

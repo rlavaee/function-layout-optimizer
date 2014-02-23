@@ -17,7 +17,7 @@ SHARED_LIBRARY = 1
 BUILD_ARCHIVE = 1
 override NO_INSTALL_ARCHIVES =
 #CPPFLAGS=-std=c++11 -stdlib=libstdc++
-CPPFLAGS=-std=c++11 -I $(HOME)/usr/include #-pg
+CPPFLAGS=-std=c++11 -I $(HOME)/usr/include -pg
 #CFLAGS= -pg
 
 #CFLAGS=-std=c+11 -stdlib=libc++

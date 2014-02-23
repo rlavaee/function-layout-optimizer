@@ -7,7 +7,14 @@
 #include <deque>
 #include <list>
 #include <stdint.h>
+#include <string.h>
+#include <algorithm>
+#include <assert.h>
 using namespace std;
+const char * version_str=".fabc";
+const char * one_dim_version=".1D";
+const char * two_dim_version_c=".2Dc";
+const char * two_dim_version_l=".2Dl";
 
 typedef uint8_t wsize_t;
 typedef uint16_t func_t;
@@ -88,6 +95,23 @@ struct disjointSet {
     sets[id]->elements.push_back(id);
   }
 
+	static void deallocate(func_t id){
+		disjointSet * setp = sets[id];
+		if(sets[id]){
+			for(deque<func_t>::iterator it=sets[id]->elements.begin(); it!=sets[id]->elements.end(); ++it)
+				sets[*it]=0;
+			delete setp;
+		}
+
+	}
+
+	static int get_min_index(func_t id){
+		deque<func_t>::iterator it=find(sets[id]->elements.begin(),sets[id]->elements.end(),id);
+		int index=min(sets[id]->elements.end()-it-1,it-sets[id]->elements.begin());
+		assert(index>=0);
+		return index;
+	}
+
 };
 
 disjointSet ** disjointSet::sets = 0;
@@ -116,7 +140,26 @@ wsize_t sequential_update_affinity(list<SampledWindow>::iterator);
 void affinityAtExitHandler();
 
 
+uint32_t * GetWithDef(JointFreqMap * m, const funcpair_t &key, uint32_t * defval);
 bool (*affEntryCmp)(const funcpair_t& pair_left, const funcpair_t& pair_right);
-//bool affEntry1DCmp(const funcpair_t& pair_left, const funcpair_t& pair_right);
-bool affEntry2DCmp(const funcpair_t& pair_left, const funcpair_t& pair_right);
+bool affEntry1DCmp(const funcpair_t& pair_left, const funcpair_t& pair_right);
+bool affEntry2DCmpConstantStep(const funcpair_t& pair_left, const funcpair_t& pair_right);
+bool affEntry2DCmpLogStep(const funcpair_t& pair_left, const funcpair_t& pair_right);
+const char * get_dim_version(){ 
+	if(affEntryCmp==&affEntry1DCmp)
+			return one_dim_version;
+	if(affEntryCmp==&affEntry2DCmpConstantStep)
+			return two_dim_version_c;
+	
+	if(affEntryCmp==&affEntry2DCmpLogStep)
+			return two_dim_version_l;
+	assert(false);
+}
+char * get_versioned_filename(const char * basename){
+	char * versioned_name = new char [80];
+	strcpy(versioned_name,basename);
+	strcat(versioned_name,version_str);
+	strcat(versioned_name,get_dim_version());
+	return versioned_name;
+}
 #endif /* AFFINITY_HPP */

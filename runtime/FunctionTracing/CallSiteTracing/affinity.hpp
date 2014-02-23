@@ -9,6 +9,8 @@
 #include <stdint.h>
 using namespace std;
 
+short totalFuncs, maxWindowSize;
+
 struct affEntry{
   short first,second;
   affEntry();
@@ -23,7 +25,9 @@ struct eqAffEntry{
 };
 
 struct affEntry_hash{
-  size_t operator()(affEntry const&)const;
+  size_t operator()(affEntry const &entry)const{
+  	return std::tr1::hash<short>()(entry.first*totalFuncs+entry.second);
+	}
 };
 
 //typedef sparse_hash_set <int, hash<int> > intHashSet;

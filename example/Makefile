@@ -72,7 +72,7 @@ $(BITCODED): test.c test_util.c
 	llvm-link test.bc test_util.bc -o $@
 
 $(COMPILED): $(BITCODED)
-	llc $< -o $(PROG).s
+	llc -fno-asynchronous-unwind-tables $< -o $(PROG).s
 	clang $(PROG).s -o $@
  
 
