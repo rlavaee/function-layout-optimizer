@@ -364,6 +364,12 @@ void find_affinity_groups(){
 	}
 
   for(vector<funcpair_t>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
+		if(iter!=all_affEntry_iters.begin() && affEntryCmp==&affEntry2DCmpLogStep){
+			if(!print_when(*(--iter),*(++iter))){
+				fclose(orderFile);
+				assert(false);
+			}
+		}
     fprintf(orderFile,"(%d,%d)\t",iter->first,iter->second);
 		uint32_t * jfreq = GetWithDef(joint_freqs,*iter,null_joint_freq);
 		for(int wsize = 2; wsize <= maxWindowSize; ++wsize){
@@ -372,8 +378,10 @@ void find_affinity_groups(){
 			fprintf(orderFile,"[%1.3f,%1.3f] ",(double)jfreq[wsize]/first_sfreq, (double)jfreq[wsize]/second_sfreq);
 		}
 		fprintf(orderFile,"\n");
-		if(disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second) < 5)
+		if(disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second) < 5){
     	disjointSet::mergeSets(iter->first, iter->second);
+			fprintf(orderFile,"effected\n");
+		}
   } 
 
   fclose(orderFile);
@@ -574,53 +582,86 @@ bool affEntry2DCmpLogStep(const funcpair_t &left_pair, const funcpair_t &right_p
   uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
 
   int left_pair_val, right_pair_val;
+	int freqlevel,top_freqlevel;
+	int top_wsize,wsize;
+	for(top_freqlevel = 2; top_freqlevel < maxFreqLevel; ++top_freqlevel){
+		for(top_wsize=2 ; top_wsize< maxWindowSize*2; top_wsize<<=1){
+			for(wsize=(top_wsize >> 1)+1; wsize<=min(top_wsize,int(maxWindowSize)); ++wsize){
+				for(freqlevel= maxWindowSize/top_wsize-1; freqlevel >= 0; freqlevel--){
+					int right_mult = maxWindowSize/top_wsize+(top_freqlevel-1)*freqlevel;
+					int left_mult = (maxWindowSize/top_wsize)*top_freqlevel;
 
+      			if((left_mult*(jointFreq_left[wsize]) > right_mult*single_freqs[left_pair.first][wsize]) && 
+          		(left_mult*(jointFreq_left[wsize]) > right_mult*single_freqs[left_pair.second][wsize]))
+        		left_pair_val = 1;
+						else
+							left_pair_val = -1;
 
-	uint16_t freqlevel = 1;
-	uint16_t max_freqlevel = 1 << maxFreqLevel;
-  for(freqlevel= 1 ; freqlevel != max_freqlevel; freqlevel <<= 1){
-    for(short wsize=2;wsize<=maxWindowSize;++wsize){
-      	if((max_freqlevel*(jointFreq_left[wsize]) > (max_freqlevel-freqlevel)*single_freqs[left_pair.first][wsize]) && 
-          	(max_freqlevel*(jointFreq_left[wsize]) > (max_freqlevel-freqlevel)*single_freqs[left_pair.second][wsize]))
-        	left_pair_val = 1;
-				else
-					left_pair_val = -1;
-
-      	if((max_freqlevel*(jointFreq_right[wsize]) > (max_freqlevel-freqlevel)*single_freqs[right_pair.first][wsize]) && 
-          	(max_freqlevel*(jointFreq_right[wsize]) > (max_freqlevel-freqlevel)*single_freqs[right_pair.second][wsize]))
-					right_pair_val = 1;
-				else
-					right_pair_val = -1;
-    		
+      			if((left_mult*(jointFreq_right[wsize]) > right_mult*single_freqs[right_pair.first][wsize]) && 
+          		(left_mult*(jointFreq_right[wsize]) > right_mult*single_freqs[right_pair.second][wsize]))
+						right_pair_val = 1;
+					else
+						right_pair_val = -1;
 				if(left_pair_val != right_pair_val)
-					return (left_pair_val > right_pair_val);
+						return (left_pair_val > right_pair_val);
+				}
 			}
-  }
-
-	for(freqlevel >>= 1; freqlevel != max_freqlevel-1; freqlevel |= (freqlevel >> 1)){
-		 for(short wsize=2;wsize<=maxWindowSize;++wsize){
-      	if((max_freqlevel*(jointFreq_left[wsize]) > freqlevel*single_freqs[left_pair.first][wsize]) && 
-          	(max_freqlevel*(jointFreq_left[wsize]) > freqlevel*single_freqs[left_pair.second][wsize]))
-        	left_pair_val = 1;
-				else
-					left_pair_val = -1;
-
-      	if((max_freqlevel*(jointFreq_right[wsize]) > freqlevel*single_freqs[right_pair.first][wsize]) && 
-          	(max_freqlevel*(jointFreq_right[wsize]) > freqlevel*single_freqs[right_pair.second][wsize]))
-					right_pair_val = 1;
-				else
-					right_pair_val = -1;
-    		
-				if(left_pair_val != right_pair_val)
-					return (left_pair_val > right_pair_val);
+		
 			}
+		}
 
-	}
+
 	if(left_pair.first!=right_pair.first)
 		return left_pair.first > right_pair.first;
   return left_pair.second > right_pair.second;
 
 }
+
+bool print_when(const funcpair_t &left_pair, const funcpair_t &right_pair){
+  uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
+  uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
+
+  int left_pair_val, right_pair_val;
+	int freqlevel,top_freqlevel;
+	int top_wsize,wsize;
+	for(top_freqlevel = 2; top_freqlevel < maxFreqLevel; ++top_freqlevel){
+		for(top_wsize=2 ; top_wsize< maxWindowSize*2; top_wsize<<=1){
+			for(wsize=(top_wsize >> 1)+1; wsize<=min(top_wsize,int(maxWindowSize)); ++wsize){
+				for(freqlevel= maxWindowSize/top_wsize-1; freqlevel >= 0; freqlevel--){
+					int right_mult = maxWindowSize/top_wsize+(top_freqlevel-1)*freqlevel;
+					int left_mult = (maxWindowSize/top_wsize)*top_freqlevel;
+
+      			if((left_mult*(jointFreq_left[wsize]) > right_mult*single_freqs[left_pair.first][wsize]) && 
+          		(left_mult*(jointFreq_left[wsize]) > right_mult*single_freqs[left_pair.second][wsize]))
+        		left_pair_val = 1;
+						else
+							left_pair_val = -1;
+
+      			if((left_mult*(jointFreq_right[wsize]) > right_mult*single_freqs[right_pair.first][wsize]) && 
+          		(left_mult*(jointFreq_right[wsize]) > right_mult*single_freqs[right_pair.second][wsize]))
+						right_pair_val = 1;
+					else
+						right_pair_val = -1;
+
+				if(left_pair_val != right_pair_val){
+						fprintf(orderFile,"top_freqlevel:%d\ttop_wsize:%d\twsize:%d\tfreqlevel:%d\n",top_freqlevel,top_wsize,wsize,freqlevel);
+						return (left_pair_val > right_pair_val);
+				}
+				}
+			}
+		
+			}
+		}
+
+
+	if(left_pair.first!=right_pair.first)
+		return left_pair.first > right_pair.first;
+  return left_pair.second > right_pair.second;
+
+}
+
+
+
 
 
 void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){

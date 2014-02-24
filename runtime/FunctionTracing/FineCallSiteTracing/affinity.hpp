@@ -145,6 +145,7 @@ bool (*affEntryCmp)(const funcpair_t& pair_left, const funcpair_t& pair_right);
 bool affEntry1DCmp(const funcpair_t& pair_left, const funcpair_t& pair_right);
 bool affEntry2DCmpConstantStep(const funcpair_t& pair_left, const funcpair_t& pair_right);
 bool affEntry2DCmpLogStep(const funcpair_t& pair_left, const funcpair_t& pair_right);
+bool print_when(const funcpair_t& pair_left, const funcpair_t& pair_right);
 const char * get_dim_version(){ 
 	if(affEntryCmp==&affEntry1DCmp)
 			return one_dim_version;
