@@ -2,7 +2,9 @@
 #include <tr1/unordered_map>
 #include <boost/functional/hash.hpp>
 #include <deque>
+#include <algorithm>
 
+using namespace std;
 //using google::sparse_hash_map;
 short totalFuncs;
 
@@ -47,6 +49,13 @@ struct disjointSet {
 		sets[id]->elements.push_back(id);
 	}
 	
+	static int get_min_index(short id){
+		deque<short>::iterator it=find(sets[id]->elements.begin(),sets[id]->elements.end(),id);
+		int index=min(sets[id]->elements.end()-it-1,it-sets[id]->elements.begin());
+		assert(index>=0 && (unsigned long)index<=(sets[id]->elements.size()-1)/2);
+		return index;
+	}
+
 };
 
 disjointSet ** disjointSet::sets = 0;

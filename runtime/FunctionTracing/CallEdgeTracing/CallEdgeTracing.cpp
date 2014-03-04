@@ -180,7 +180,8 @@ void find_optimal_layout(){
 
 	for(std::vector<shortpair>::iterator it=all_cg_edges.begin(); it!=all_cg_edges.end(); ++it){
 		//printf("considering edge (%d,%d) -> %d\n",all_cg_edges[cge].first.first,all_cg_edges[cge].first.second, all_cg_edges[cge].second);
-		disjointSet::mergeSets(it->first,it->second);
+		if(disjointSet::get_min_index(it->first)+disjointSet::get_min_index(it->second) < 10)
+			disjointSet::mergeSets(it->first,it->second);
 	}
 
 
@@ -193,6 +194,7 @@ void do_exit(){
 	//cg_edges->serialize(CGSerializer(),cg_file);
 	//fprintf(stderr,"sent to file\n");
 	//fclose(cg_file);
+	
 }
 
 
