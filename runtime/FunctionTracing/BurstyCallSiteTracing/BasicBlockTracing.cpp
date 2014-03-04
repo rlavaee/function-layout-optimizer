@@ -193,23 +193,8 @@ bool affinity_satisfied(const funcpair_t &p, wsize_t wsize, int freqlevel){
 
 bool affEntry2DCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
 
-	affWcounts left_pair_wcount = GetWithDef(affEntries, left_pair, zero_aff_wcount);
-  affWcounts left_pair_rev_wcount = GetWithDef(affEntries, funcpair_t(left_pair.second,left_pair.first), zero_aff_wcount);
-
-	affWcounts right_pair_wcount = GetWithDef(affEntries, right_pair, zero_aff_wcount);
-  affWcounts right_pair_rev_wcount = GetWithDef(affEntries, funcpair_t(right_pair.second,right_pair.first), zero_aff_wcount);
-
-	for(wsize_t wsize=2; wsize=maxWindowSize; ++wsize){
-		uint32_t left_pair_wcount = left_pair_wcount.actual_windows[wsize]+left_pair_rev_wcount.actual_windows[wsize];
-		uint32_t right_pair_wcount = right_pair_wcount.actual_windows[wsize]+right_pair_rev_wcount.actual_windows[wsize];
-
-		uint32_t max_wcount 
-	}
-	
-
-bool affEntry2DCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
-
 	int freqlevel;
+	int left_pair_val,right_pair_val;
 	for(freqlevel = maxFreqLevel-1; freqlevel > 0; --freqlevel){
 		left_pair_val = right_pair_val = -1;
 	 	for(wsize_t wsize=2;wsize<=maxWindowSize;++wsize){
@@ -221,7 +206,7 @@ bool affEntry2DCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
 			}
 
 			if(right_pair_val==-1){
-				if(get_satisfied(right_pair,wsize,freqlevel))
+				if(affinity_satisfied(right_pair,wsize,freqlevel))
         	right_pair_val = 1;
 				else
 					right_pair_val = -1;
