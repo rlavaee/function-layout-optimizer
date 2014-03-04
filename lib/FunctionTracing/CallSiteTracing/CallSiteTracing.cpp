@@ -9,21 +9,39 @@
 using namespace llvm;
 
 namespace {
-  class BasicBlockTracer : public ModulePass {
+  class FunctionCallSiteTracer : public ModulePass {
     bool runOnModule(Module &M);
   public:
     static char ID;
-    BasicBlockTracer(): ModulePass(ID){}
+    FunctionCallSiteTracer(): ModulePass(ID){}
 
     virtual const char * getPassName() const{
-      return "Basic Block Tracer";
+      return "Call Site Tracer at Function Level";
     }
   };
   
 }
 
-char BasicBlockTracer::ID = 0;
-static RegisterPass<BasicBlockTracer> X("trace-call-sites","Insert instrumentation for basic block tracing", false, false);
+char FunctionCallSiteTracer::ID = 0;
+static RegisterPass<FunctionCallSiteTracer> X("trace-call-sites-func-level","Insert instrumentation for function tracing", false, false);
+
+namespace {
+  class BasicBlockCallSiteTracer : public ModulePass {
+    bool runOnModule(Module &M);
+  public:
+    static char ID;
+    BasicBlockCallSiteTracer(): ModulePass(ID){}
+
+    virtual const char * getPassName() const{
+      return "Call Site Tracer at Basic Block Level";
+    }
+  };
+  
+}
+
+char BasicBlockCallSiteTracer::ID = 0;
+static RegisterPass<BasicBlockCallSiteTracer> Y("trace-call-sites-bb-level","Insert instrumentation for basic block tracing", false, false);
+
 
 namespace {
   class BurstyCallSiteTracer : public ModulePass {
@@ -40,7 +58,8 @@ namespace {
 }
 
 char BurstyCallSiteTracer::ID = 0;
-static RegisterPass<BurstyCallSiteTracer> Y("bursty-trace-call-sites","Insert instrumentation for basic block tracing", false, false);
+static RegisterPass<BurstyCallSiteTracer> Z("bursty-trace-call-sites","Insert instrumentation for basic block tracing", false, false);
+
 
 
 
@@ -70,6 +89,7 @@ void InsertInstrumentationCall(Instruction *II,
   CallInst::Create(InstrFn, Args, "", InsertPos);
 
 }
+
 
 
 
@@ -148,7 +168,7 @@ void InsertSwitchCall ( Function * original, Function * profiling, short FuncNum
 }
 
 
-bool BasicBlockTracer::runOnModule(Module &M) {
+bool FunctionCallSiteTracer::runOnModule(Module &M) {
   Function *Main = M.getFunction("main");
   if (Main == 0) {
     errs() << "WARNING: cannot insert basic-block trace instrumentatiom "
@@ -191,6 +211,52 @@ bool BasicBlockTracer::runOnModule(Module &M) {
   // Add the initialization call to main.
   InsertCodeAnalysisInitCall(Main,"start_call_site_tracing", FuncNumber); 
   return true;
+}
+
+bool BasicBlockCallSiteTracer::runOnModule(Module &M){
+  Function *Main = M.getFunction("main");
+  if (Main == 0) {
+    errs() << "WARNING: cannot insert trace instrumentatiom "
+	   << "into a module with no main function!\n";
+    return false;  // No main, no instrumentation!
+  }
+  
+  uint16_t bbid = 0;
+  uint16_t fid = 0;
+  std::vector<uint16_t> bb_count_vec;
+  for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F){
+    bbid = 0;
+    if(!F->isDeclaration()){
+
+      for (Function::iterator BB = F->begin(), E = F->end(); BB != E; ++BB) {
+        InsertBBInstrumentationCall(BB->begin(), "record_function_exec",fid,bbid); 
+	for (BasicBlock::iterator II = BB->begin(), E= BB->end(); II != E; ++II){
+	  CallSite CS(cast<Value>(II));
+	  if (CS) {
+	    const Function *Callee = CS.getCalledFunction();
+	    //	    errs() << Callee->getName() <<" "<< Callee->isDeclaration() << "\n";
+	    if (Callee && !Callee->isDeclaration()){
+	      ++II;
+	      if(II!=E)
+		InsertBBInstrumentationCall(II, "record_function_exec", fid, bbid);
+	      --II;
+	    }
+	  }
+	}
+	++bbid;
+      }
+      bb_count_vec.push_back(bbid);
+
+      ++fid;
+    }
+  }
+
+
+  // Add the initialization call to main.
+  InsertBBAnalysisInitCall(Main,fid,bb_count_vec);
+  return true;
+
+
 }
 
 bool BurstyCallSiteTracer::runOnModule(Module &M) {
