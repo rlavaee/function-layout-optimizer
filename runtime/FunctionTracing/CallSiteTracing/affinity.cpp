@@ -241,7 +241,7 @@ void print_optimal_layouts(){
 
 	char affinitybase[80];
 	strcpy(affinitybase,"layout.mws");
-	strcat(affinitybase,std::to_string(maxWindowSize).c_str());
+	strcat(affinitybase,to_string(maxWindowSize).c_str());
 
   FILE *affinityFile = fopen(get_versioned_filename(affinitybase),"w");  
 

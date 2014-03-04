@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 
-const int MAX_EVENT_SIZE=4;
+#define MAX_EVENT_SIZE 4
 
 int eventsize;
 int *events;

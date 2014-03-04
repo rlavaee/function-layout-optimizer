@@ -17,7 +17,7 @@ SHARED_LIBRARY = 1
 BUILD_ARCHIVE = 1
 override NO_INSTALL_ARCHIVES =
 #CPPFLAGS=-std=c++11 -stdlib=libstdc++
-CPPFLAGS=-I $(HOME)/usr/local/include -fexceptions -stdlib=libstdc++
+CPPFLAGS=-I $(HOME)/usr/local/include
 
 #CFLAGS=-std=c+11 -stdlib=libc++
 #ifeq ($(OS),Darwin)
