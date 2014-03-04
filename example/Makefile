@@ -1,6 +1,7 @@
 LEVEL= ..
 PROG=prog
 ABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcall_site_tracing_rt.a
+BABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libbursty_call_site_tracing_rt.a
 AABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libadv_call_site_tracing_rt.a
 AWABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libaw_call_site_tracing_rt.a
 FABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libfine_call_site_tracing_rt.a
@@ -14,6 +15,7 @@ LIBPAPI=$(HOME)/usr/local/lib/libpapi.a
 BITCODED = $(PROG).bc
 COMPILED = $(PROG).out
 ABC_TR	= $(PROG).abc_tr.out
+BABC_TR	= $(PROG).babc_tr.out
 AABC_TR = $(PROG).aabc_tr.out
 FABC_TR = $(PROG).fabc_tr.out
 AWABC_TR = $(PROG).awabc_tr.out
@@ -40,6 +42,12 @@ $(AABC_TR): $(BITCODED) $(AABC_RT_LIB) $(ABC_LLVM_LIB)
 	opt -load $(ABC_LLVM_LIB) -trace-call-sites $< -o $@.bc
 	llc $@.bc -o $@.s
 	clang++ $@.s $(AABC_RT_LIB) -o $@ -lpthread
+
+$(BABC_TR): $(BITCODED) $(BABC_RT_LIB) $(ABC_LLVM_LIB)
+	opt -load $(ABC_LLVM_LIB) -bursty-trace-call-sites $< -o $@.bc
+	llc $@.bc -o $@.s
+	clang++ $@.s $(BABC_RT_LIB) -o $@ -lpthread
+
 
 $(ICC_OUT): $(BITCODED)
 	opt -load $(ICC_LLVM_LIB) -add-inst-cache-counters $< <$(BITCODED)> $@.bc

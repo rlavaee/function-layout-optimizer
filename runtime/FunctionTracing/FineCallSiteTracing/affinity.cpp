@@ -232,12 +232,11 @@ void print_optimal_layouts(){
   }
 
 
-  char affinityFilePath[80];
-  strcpy(affinityFilePath,"layout_");
-  strcat(affinityFilePath,to_string(maxWindowSize).c_str());
-  strcat(affinityFilePath,version_str);
+  char affinitybase[80];
+  strcpy(affinitybase,"layout.mws");
+  strcat(affinitybase,to_string(maxWindowSize).c_str());
 
-  FILE *affinityFile = fopen(affinityFilePath,"w");  
+  FILE *affinityFile = fopen(get_versioned_filename(affinitybase),"w");  
 
   for(func_t i=0;i<totalFuncs;++i){
     if(i%20==0)
@@ -378,10 +377,10 @@ void find_affinity_groups(){
 			fprintf(orderFile,"[%1.3f,%1.3f] ",(double)jfreq[wsize]/first_sfreq, (double)jfreq[wsize]/second_sfreq);
 		}
 		fprintf(orderFile,"\n");
-		if(disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second) < 5){
+		//if(disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second) < 4){
     	disjointSet::mergeSets(iter->first, iter->second);
 			fprintf(orderFile,"effected\n");
-		}
+		//}
   } 
 
   fclose(orderFile);
@@ -405,17 +404,26 @@ void affinityAtExitHandler(){
   create_single_freqs();
   aggregate_affinity();
 
-  affEntryCmp=&affEntry1DCmp;
-  find_affinity_groups();
-  print_optimal_layout();
+  //affEntryCmp=&affEntry1DCmp;
+  //find_affinity_groups();
+  //print_optimal_layout();
 
-  affEntryCmp=&affEntry2DCmpConstantStep;
-  find_affinity_groups();
-  print_optimal_layout();
+	//int maxWindowSizeArray[12]={2,4,6,8,10,12,14,20,25,30,35,40};
+	
+	//for(int i=0;i<12;++i){
 
+	//maxWindowSize=maxWindowSizeArray[i];
+		
+  	affEntryCmp=&affEntryCountCmp;
+  	find_affinity_groups();
+ 	 	print_optimal_layout();
+	//}
+
+/*
   affEntryCmp=&affEntry2DCmpLogStep;
   find_affinity_groups();
   print_optimal_layout();
+*/
 }
 
 
@@ -538,6 +546,28 @@ bool affEntry1DCmp(const funcpair_t &left_pair,const funcpair_t &right_pair){
 
   return left_pair.second > right_pair.second;
 
+}
+
+bool affEntryCountCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
+  uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
+  uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
+
+	uint32_t jointFreq_left_total=0;
+	uint32_t jointFreq_right_total=0;
+	for(short wsize=2; wsize<=maxWindowSize;++wsize){
+		jointFreq_left_total+=jointFreq_left[wsize];
+		jointFreq_right_total+=jointFreq_right[wsize];
+	}
+
+	if(jointFreq_left_total > jointFreq_right_total)
+		return true;
+
+	if(jointFreq_left_total < jointFreq_right_total)
+		return true;
+
+	if(left_pair.first!=right_pair.first)
+		return left_pair.first > right_pair.first;
+  return left_pair.second > right_pair.second;
 }
 
 bool affEntry2DCmpConstantStep(const funcpair_t &left_pair, const funcpair_t &right_pair){

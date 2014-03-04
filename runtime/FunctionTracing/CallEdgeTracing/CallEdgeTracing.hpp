@@ -52,7 +52,7 @@ struct disjointSet {
 	static int get_min_index(short id){
 		deque<short>::iterator it=find(sets[id]->elements.begin(),sets[id]->elements.end(),id);
 		int index=min(sets[id]->elements.end()-it-1,it-sets[id]->elements.begin());
-		assert(index>=0);
+		assert(index>=0 && (unsigned long)index<=(sets[id]->elements.size()-1)/2);
 		return index;
 	}
 

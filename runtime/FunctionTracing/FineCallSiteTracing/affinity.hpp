@@ -13,25 +13,14 @@
 using namespace std;
 const char * version_str=".fabc";
 const char * one_dim_version=".1D";
-const char * two_dim_version_c=".2Dc";
+const char * two_dim_version_c=".2D";
 const char * two_dim_version_l=".2Dl";
+const char * count_version=".cnt";
 
 typedef uint8_t wsize_t;
 typedef uint16_t func_t;
 typedef pair<func_t,func_t> funcpair_t;
 func_t totalFuncs;
-
-/*
-   struct affEntry{
-   func_t first,second;
-   affEntry();
-   affEntry(func_t,func_t);
-   affEntry(const affEntry&);
-   affEntry& operator= (const affEntry&);
-   bool operator== (const affEntry&) const;
-   };
-   */
-
 
 funcpair_t unordered_funcpair(func_t s1,func_t s2){
   return (s1<s2)?(funcpair_t(s1,s2)):(funcpair_t(s2,s1));
@@ -55,14 +44,6 @@ struct funcpair_hash{
     return tr1::hash<func_t>()(totalFuncs*smaller + bigger);
   }
 };
-
-/*
-   struct funcpair_t_eq{
-   bool operator()(const funcpair_t &s1, const funcpair_t &s2) const{
-   return (s1.first == s2.first) && (s1.second == s2.second);
-   }
-   };
-   */
 
 typedef tr1::unordered_map <const funcpair_t, uint32_t *, funcpair_hash, funcpair_eq > JointFreqMap;
 typedef tr1::unordered_map <const funcpair_t, uint32_t **, funcpair_hash, funcpair_eq > JointFreqRangeMap;
@@ -108,7 +89,7 @@ struct disjointSet {
 	static int get_min_index(func_t id){
 		deque<func_t>::iterator it=find(sets[id]->elements.begin(),sets[id]->elements.end(),id);
 		int index=min(sets[id]->elements.end()-it-1,it-sets[id]->elements.begin());
-		assert(index>=0);
+		assert(index>=0 && (unsigned long)index<=(sets[id]->elements.size()-1)/2);
 		return index;
 	}
 
@@ -144,6 +125,7 @@ uint32_t * GetWithDef(JointFreqMap * m, const funcpair_t &key, uint32_t * defval
 bool (*affEntryCmp)(const funcpair_t& pair_left, const funcpair_t& pair_right);
 bool affEntry1DCmp(const funcpair_t& pair_left, const funcpair_t& pair_right);
 bool affEntry2DCmpConstantStep(const funcpair_t& pair_left, const funcpair_t& pair_right);
+bool affEntryCountCmp(const funcpair_t& pair_left, const funcpair_t& pair_right);
 bool affEntry2DCmpLogStep(const funcpair_t& pair_left, const funcpair_t& pair_right);
 bool print_when(const funcpair_t& pair_left, const funcpair_t& pair_right);
 const char * get_dim_version(){ 
@@ -154,6 +136,8 @@ const char * get_dim_version(){
 	
 	if(affEntryCmp==&affEntry2DCmpLogStep)
 			return two_dim_version_l;
+	if(affEntryCmp==&affEntryCountCmp)
+		return count_version;
 	assert(false);
 }
 char * get_versioned_filename(const char * basename){

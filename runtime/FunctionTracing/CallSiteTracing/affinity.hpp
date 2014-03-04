@@ -7,9 +7,17 @@
 #include <deque>
 #include <list>
 #include <stdint.h>
+#include <assert.h>
+#include <algorithm>
+#include <cstring>
 using namespace std;
 
 short totalFuncs, maxWindowSize;
+const char * version_str=".abc";
+const char * one_dim_version=".1D";
+const char * two_dim_version_c=".2D";
+const char * two_dim_version_l=".2Dl";
+
 
 struct affEntry{
   short first,second;
@@ -66,6 +74,26 @@ struct disjointSet {
 		sets[id]= new disjointSet();
 		sets[id]->elements.push_back(id);
 	}
+
+	static int get_min_index(short id){
+		deque<short>::iterator it=find(sets[id]->elements.begin(),sets[id]->elements.end(),id);
+		int index=min(sets[id]->elements.end()-it-1,it-sets[id]->elements.begin());
+		assert(index>=0 && (unsigned long)index<=(sets[id]->elements.size()-1)/2);
+		return index;
+	}
+
+	static void deallocate(short id){
+		disjointSet * setp = sets[id];
+		if(sets[id]){
+			for(deque<short>::iterator it=sets[id]->elements.begin(); it!=sets[id]->elements.end(); ++it)
+				sets[*it]=0;
+			delete setp;
+		}
+
+	}
+
+
+
 	
 };
 
@@ -89,6 +117,24 @@ bool (*affEntryCmp)(const affEntry, const affEntry);
 bool affEntry1DCmp(const affEntry, const affEntry);
 bool affEntry2DCmp(const affEntry, const affEntry);
 //void record_function_exec(short);
+
+
+const char * get_dim_version(){ 
+	if(affEntryCmp==&affEntry1DCmp)
+			return one_dim_version;
+	if(affEntryCmp==&affEntry2DCmp)
+			return two_dim_version_c;
+	assert(false);
+}
+
+
+char * get_versioned_filename(const char * basename){
+	char * versioned_name = new char [80];
+	strcpy(versioned_name,basename);
+	strcat(versioned_name,version_str);
+	strcat(versioned_name,get_dim_version());
+	return versioned_name;
+}
 
 
 #endif /* AFFINITY_HPP */

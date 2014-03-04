@@ -51,7 +51,6 @@ uint32_t ** sum_freqs;
 
 FILE * graphFile, * debugFile, * orderFile, *comparisonFile;
 
-const char * version_str=".abc";
 
 
 //pthread_mutex_t trace_list_queue_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -240,12 +239,11 @@ void print_optimal_layouts(){
 	}
 
 
-	char affinityFilePath[80];
-	strcpy(affinityFilePath,"layout_");
-	strcat(affinityFilePath,std::to_string(maxWindowSize).c_str());
-	strcat(affinityFilePath,version_str);
+	char affinitybase[80];
+	strcpy(affinitybase,"layout.mws");
+	strcat(affinitybase,std::to_string(maxWindowSize).c_str());
 
-  FILE *affinityFile = fopen(affinityFilePath,"w");  
+  FILE *affinityFile = fopen(get_versioned_filename(affinitybase),"w");  
 
   for(short i=0;i<totalFuncs;++i){
     if(i%20==0)
@@ -412,6 +410,11 @@ void find_affinity_groups(){
 	std::sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),affEntryCmp);
 	fclose(comparisonFile);
  
+ 	if(disjointSet::sets)
+  	for(short i=0; i<totalFuncs; ++i){
+			disjointSet::deallocate(i);
+		}
+
 	disjointSet::sets = new disjointSet *[totalFuncs];
 	for(short i=0; i<totalFuncs; ++i)
 		disjointSet::init_new_set(i);
@@ -420,8 +423,10 @@ void find_affinity_groups(){
 
  	for(std::vector<affEntry>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
     fprintf(orderFile,"(%d,%d)\n",iter->first,iter->second);
-		disjointSet::mergeSets(iter->first, iter->second);
-		//fprintf(stderr,"sets %d and %d for freqlevel=%d, wsize=%d, hlevel=%d\n",iter->first,iter->bb2,freqlevel,wsize,hlevel);
+		//if(disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second) < 4){
+    	disjointSet::mergeSets(iter->first, iter->second);
+			fprintf(orderFile,"effected\n");
+		//}
 	} 
 
 	fclose(orderFile);
@@ -456,20 +461,23 @@ void affinityAtExitHandler(){
 
 	join_all_consumers();
 	aggregate_affinity();
-	int maxWindowSizeArray[9]={2,3,6,9,12,15,20,25,30};
 	
-	//for(int i=0;i<9;++i){
 
-		//maxWindowSize=maxWindowSizeArray[i];
-		affEntryCmp=affEntry1DCmp;
-		find_affinity_groups();
-  	print_optimal_layout();
+		//affEntryCmp=affEntry1DCmp;
+		//find_affinity_groups();
+  	//print_optimal_layout();
 
+	int maxWindowSizeArray[12]={2,4,6,8,10,12,14,20,25,30,35,40};
+	
+	for(int i=0;i<12;++i){
+
+		maxWindowSize=maxWindowSizeArray[i];
+		
 		affEntryCmp=affEntry2DCmp;
 		find_affinity_groups();
-  	print_optimal_layout();
-		//print_optimal_layouts();
-	//}
+  	//print_optimal_layout();
+		print_optimal_layouts();
+	}
 
 }
 
@@ -649,14 +657,14 @@ bool affEntry1DCmp(affEntry ae_left, affEntry ae_right){
 	float rel_freq_threshold=2.0;
     for(short wsize=2;wsize<=maxWindowSize;++wsize){
 			
-        if((rel_freq_threshold*(jointFreq_left[wsize]) >= sum_freqs[ae_left.first][wsize]) && 
-            (rel_freq_threshold*(jointFreq_left[wsize]) >= sum_freqs[ae_left.second][wsize]))
+        if((rel_freq_threshold*(jointFreq_left[wsize]) > sum_freqs[ae_left.first][wsize]) && 
+            (rel_freq_threshold*(jointFreq_left[wsize]) > sum_freqs[ae_left.second][wsize]))
 					ae_left_val = 1;
 				else
 					ae_left_val = -1;
 
-				if((rel_freq_threshold*(jointFreq_right[wsize]) >= sum_freqs[ae_right.first][wsize]) && 
-            (rel_freq_threshold*(jointFreq_right[wsize]) >= sum_freqs[ae_right.second][wsize]))
+				if((rel_freq_threshold*(jointFreq_right[wsize]) > sum_freqs[ae_right.first][wsize]) && 
+            (rel_freq_threshold*(jointFreq_right[wsize]) > sum_freqs[ae_right.second][wsize]))
 					ae_right_val = 1;
 				else
 					ae_right_val = -1;
@@ -680,18 +688,17 @@ bool affEntry2DCmp(affEntry ae_left, affEntry ae_right){
 	int ae_left_val, ae_right_val;
 	
 	short freqlevel;
-	float rel_freq_threshold;
-  for(freqlevel=0, rel_freq_threshold=1.0; freqlevel<maxFreqLevel; ++freqlevel, rel_freq_threshold+=10.0/maxFreqLevel){
+  for(freqlevel=maxFreqLevel-1; freqlevel>=0; --freqlevel){
     for(short wsize=2;wsize<=maxWindowSize;++wsize){
 			
-        if((rel_freq_threshold*(jointFreq_left[wsize]) >= sum_freqs[ae_left.first][wsize]) && 
-            (rel_freq_threshold*(jointFreq_left[wsize]) >= sum_freqs[ae_left.second][wsize]))
+        if((maxFreqLevel*(jointFreq_left[wsize]) > freqlevel*sum_freqs[ae_left.first][wsize]) && 
+            (maxFreqLevel*(jointFreq_left[wsize]) > freqlevel*sum_freqs[ae_left.second][wsize]))
 					ae_left_val = 1;
 				else
 					ae_left_val = -1;
 
-				if((rel_freq_threshold*(jointFreq_right[wsize]) >= sum_freqs[ae_right.first][wsize]) && 
-            (rel_freq_threshold*(jointFreq_right[wsize]) >= sum_freqs[ae_right.second][wsize]))
+				if((maxFreqLevel*(jointFreq_right[wsize]) > freqlevel*sum_freqs[ae_right.first][wsize]) && 
+            (maxFreqLevel*(jointFreq_right[wsize]) > freqlevel*sum_freqs[ae_right.second][wsize]))
 					ae_right_val = 1;
 				else
 					ae_right_val = -1;

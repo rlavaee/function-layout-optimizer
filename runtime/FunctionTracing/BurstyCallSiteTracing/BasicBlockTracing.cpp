@@ -19,85 +19,61 @@
 #include <ctime>
 #include <unistd.h>
 #include <new>
-#include <signal.h>
-#include <pthread.h>
-#include <algorithm>
-#include <semaphore.h>
 #include <string.h>
-//#include <boost/lockfree/queue.hpp>
+#include <vector>
 
-FILE * errFile;
+uint32_t * func_count;
+func_t * funcs;
 
-int * func_count;
-short * funcs;
+func_t * preference;
 
-short * preference;
-
-int ** stage_affinity;
-int * stage_affinity_sum;
-int * potential_stage_windows;
+uint32_t ** stage_affinity;
+uint32_t * stage_affinity_sum;
+uint32_t * potential_stage_windows;
 
 bool * analysis_switch;
 bool * analyzed;
 
-short now_analyzed_func;
+func_t now_analyzed_func;
 
-short analysis_set_size;
+func_t analysis_set_size;
 
-int stage_windows;
+uint32_t stage_windows;
 
-const int quantum = 1000;
+const uint32_t quantum = 1000;
 bool func_counting;
-int stage_time;
-int stage_quantum;
-//static pthread_mutex_t lock;
-//static char * program_name;
-//
-//
-//
+uint32_t stage_time;
+uint32_t stage_quantum;
 
 
 ////////affinity data////////////
-short totalFuncs, maxWindowSize;
-int sampledWindows;
-unsigned totalBBs;
-float sampleRate;
+wsize_t maxWindowSize;
+int memoryLimit;
+int sampleRateLog;
+uint32_t sampleSize;
+uint32_t sampleMask;
 short maxFreqLevel;
-int level_pid, version_pid;
-ProfilingLevel pLevel;
-
 
 affinityHashMap * affEntries;
-std::list<SampledWindow> trace_list;
+list<SampledWindow> trace_list;
 
 bool * contains_func;
-std::list<short>::iterator * func_trace_it;
-std::list<SampledWindow>::iterator * func_window_it;
-int trace_list_size;
+list<func_t>::iterator * func_trace_it;
+list<SampledWindow>::iterator * func_window_it;
+wsize_t trace_list_size;
 
 
-//boost::lockfree::queue< std::list<SampledWindow> * > trace_list_queue (100);
-
-//pthread_t update_affinity_thread;
-
-
-std::list<SampledWindow>::iterator tl_window_iter;
-std::list<short>::iterator tl_trace_iter;
-
-disjointSet *** sets;
+list<SampledWindow>::iterator tl_window_iter;
+list<func_t>::iterator tl_trace_iter;
 
 short prevFunc;
-FILE * graphFile, * debugFile;
+int DEBUG;
+FILE * graphFile, * debugFile, * orderFile;
 
-const char * version_str=".babc";
+uint32_t * zero_count_array;
+affWcounts zero_aff_wcount;
 
-
-//pthread_mutex_t trace_list_queue_lock = PTHREAD_MUTEX_INITIALIZER;
-
-sem_t affinity_sem;
-
-
-void save_affinity_into_file(char * affinityFilePath){
+void save_affinity_into_file(const char * affinityFilePath){
 	FILE * affFile=fopen(affinityFilePath,"w");
 	fprintf(affFile,"%d\n",maxWindowSize);
 	affinityHashMap::iterator iter;
@@ -114,86 +90,160 @@ void save_affinity_into_file(char * affinityFilePath){
 }
 
 
-void read_affinity_from_file(char * affinityFilePath){
+void read_affinity_from_file(const char * affinityFilePath){
 	FILE * affFile=fopen(affinityFilePath,"r");
 	if(affFile==NULL)
 		return;
-	int mwsize;
-	fscanf(affFile,"%d",&mwsize);
-	short func1,func2;
-	int potential_windows;
-	while(fscanf(affFile,"%hd\t%hd",&func1,&func2)!=EOF){
+	wsize_t mwsize;
+	fscanf(affFile,"%hu",&mwsize);
+	func_t func1,func2;
+	uint32_t potential_windows;
+	while(fscanf(affFile,"%hu\t%hu",&func1,&func2)!=EOF){
 
-		fscanf(affFile,"%d",&potential_windows);
-		int fw;
-		int * actual_windows=NULL;
-		fscanf(affFile,"%d",&fw);
-		if(fw!=-1){
-			actual_windows=new int[maxWindowSize+1]();
-			actual_windows[1]=fw;
-			for(int i=2;i<=mwsize;++i)
-				fscanf(affFile,"%d",&actual_windows[i]);
-		}
-	      	
-		affPair pair=affPair(func1,func2);
-		affinityHashMap::iterator result=affEntries->find(pair);
+		fscanf(affFile,"%u",&potential_windows);
+		uint32_t * actual_windows=NULL;
+		actual_windows=new uint32_t[maxWindowSize+1]();
+		for(int i=1;i<=mwsize;++i)
+			fscanf(affFile,"%u",&actual_windows[i]);
+		funcpair_t fp(func1,func2);
+		affinityHashMap::iterator result=affEntries->find(fp);
 
-	      	if(result==affEntries->end()){
-			(*affEntries)[pair] = affWcounts(potential_windows,actual_windows);
-	      	}else{
+	  if(result==affEntries->end()){
+			(*affEntries)[fp] = affWcounts(potential_windows,actual_windows);
+	  }else{
 			result->second.potential_windows += potential_windows;
-			if(result->second.actual_windows==NULL)
-		  		result->second.actual_windows = actual_windows;
-			else{
-		  		for(int j=1; j<=mwsize; ++j)
-		 	  	 	result->second.actual_windows[j]+=actual_windows[j];
+		if(result->second.actual_windows==NULL)
+			result->second.actual_windows = actual_windows;
+		else{
+			for(int j=1; j<=mwsize; ++j)
+				result->second.actual_windows[j]+=actual_windows[j];
 			}
-	      	}
+		}
 	}
 	fclose(affFile);
 }
 
-
-int unitcmp(const void * left, const void * right){
-  const int * ileft=(const int *) left;
-  const int * iright=(const int *) right;
-  int wsize=maxWindowSize;
-
-  int freqlevel=maxFreqLevel-1;
-  //fprintf(errFile,"%d %d %d %d %d\n",*ileft,*iright,find(&sets[freqlevel][wsize][hlevel][*ileft])->id,find(&sets[freqlevel][wsize][hlevel][*iright])->id);
-  while(sets[freqlevel][wsize][*ileft].find()->id==sets[freqlevel][wsize][*iright].find()->id){
-    //fprintf(errFile,"%d %d %d %d %d\n",freqlevel,wsize,hlevel,*ileft,*iright);
-    wsize--;
-    if(wsize<1){
-      freqlevel--;
-      wsize=maxWindowSize;
+void print_optimal_layout(){
+	 func_t * layout = new func_t[totalFuncs];
+  int count=0;
+  for(func_t i=0; i< totalFuncs; ++i){
+    //printf("i is now %d\n",i);
+    if(disjointSet::sets[i]){
+      disjointSet * thisSet=disjointSet::sets[i];
+      for(deque<func_t>::iterator it=disjointSet::sets[i]->elements.begin(), 
+          it_end=disjointSet::sets[i]->elements.end()
+          ; it!=it_end ; ++it){
+        //printf("this is *it:%d\n",*it);
+        layout[count++]=*it;
+        disjointSet::sets[*it]=0;
+      }
+      thisSet->elements.clear();
+      delete thisSet;
     }
   }
 
-  return sets[freqlevel][wsize][*ileft].find()->id - sets[freqlevel][wsize][*iright].find()->id;
-}
-
-void find_optimal_layout(){
-
-  int * layout=new int[totalUnits];
-  int i;
-
-  for(i=0;i<totalUnits;++i)
-    layout[i]=i;
-
-  qsort(layout,totalUnits,sizeof(int),unitcmp);
   char * affinityFilePath = (char *) malloc(strlen("layout")+strlen(version_str)+1);
   strcpy(affinityFilePath,"layout");
   strcat(affinityFilePath,version_str);
 
   FILE *affinityFile = fopen(affinityFilePath,"w");  
 
-  for(i=0;i<totalUnits;++i){
+  for(func_t i=0;i<totalFuncs;++i){
     if(i%20==0)
       fprintf(affinityFile, "\n");
-    fprintf(affinityFile, "%u ",layout[i]);
+    fprintf(affinityFile, "%hu ",layout[i]);
   }
   fclose(affinityFile);
+}
+
+affWcounts GetWithDef(affinityHashMap * m, const funcpair_t &key, const affWcounts &defval) {
+  affinityHashMap::const_iterator it = m->find( key );
+  if ( it == m->end() ) {
+    return defval;
+  }
+  else {
+    return it->second;
+  }
+}
+
+void print_affinity (const funcpair_t &p){
+	affWcounts wcount = GetWithDef(affEntries, p, zero_aff_wcount);
+  affWcounts rev_wcount = GetWithDef(affEntries, funcpair_t(p.second,p.first), zero_aff_wcount);
+	fprintf(orderFile,"(%hu,%hu) ---> out of (%u,%u)\t\t",p.first,p.second,wcount.potential_windows,rev_wcount.potential_windows);
+	if(rev_wcount.actual_windows == zero_count_array)
+		fprintf(orderFile,"zeros\t");
+	for(wsize_t wsize=2; wsize <= maxWindowSize; ++wsize)
+		fprintf(orderFile,"(%u+%u)\t",wcount.actual_windows[wsize],rev_wcount.actual_windows[wsize]);
+	fprintf(orderFile,"\n");
+}
+int32_t get_affinity(const funcpair_t &p, wsize_t wsize){
+	affWcounts wcount = GetWithDef(affEntries, p, zero_aff_wcount);
+  affWcounts rev_wcount = GetWithDef(affEntries, funcpair_t(p.second,p.first), zero_aff_wcount);
+
+	return wcount.actual_windows[wsize]+ rev_wcount.actual_windows[wsize];
+}
+
+bool affinity_satisfied(const funcpair_t &p, wsize_t wsize, int freqlevel){
+	affWcounts wcount = GetWithDef(affEntries, p, zero_aff_wcount);
+  affWcounts rev_wcount = GetWithDef(affEntries, funcpair_t(p.second,p.first), zero_aff_wcount);
+
+	return (maxFreqLevel * (wcount.actual_windows[wsize]+ rev_wcount.actual_windows[wsize]) >
+																freqlevel  * (wcount.potential_windows + rev_wcount.potential_windows));
+}
+
+bool affEntry2DCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
+
+	affWcounts left_pair_wcount = GetWithDef(affEntries, left_pair, zero_aff_wcount);
+  affWcounts left_pair_rev_wcount = GetWithDef(affEntries, funcpair_t(left_pair.second,left_pair.first), zero_aff_wcount);
+
+	affWcounts right_pair_wcount = GetWithDef(affEntries, right_pair, zero_aff_wcount);
+  affWcounts right_pair_rev_wcount = GetWithDef(affEntries, funcpair_t(right_pair.second,right_pair.first), zero_aff_wcount);
+
+	for(wsize_t wsize=2; wsize=maxWindowSize; ++wsize){
+		uint32_t left_pair_wcount = left_pair_wcount.actual_windows[wsize]+left_pair_rev_wcount.actual_windows[wsize];
+		uint32_t right_pair_wcount = right_pair_wcount.actual_windows[wsize]+right_pair_rev_wcount.actual_windows[wsize];
+
+		uint32_t max_wcount 
+	}
+	
+
+bool affEntry2DCmp(const funcpair_t &left_pair, const funcpair_t &right_pair){
+
+	int freqlevel;
+	for(freqlevel = maxFreqLevel-1; freqlevel > 0; --freqlevel){
+		left_pair_val = right_pair_val = -1;
+	 	for(wsize_t wsize=2;wsize<=maxWindowSize;++wsize){
+	 		if(left_pair_val==-1){
+      	if( affinity_satisfied(left_pair,wsize,freqlevel))
+        	left_pair_val = 1;
+				else
+					left_pair_val = -1;
+			}
+
+			if(right_pair_val==-1){
+				if(get_satisfied(right_pair,wsize,freqlevel))
+        	right_pair_val = 1;
+				else
+					right_pair_val = -1;
+			}
+
+			if(left_pair_val != right_pair_val)
+				return (left_pair_val > right_pair_val);
+		}
+	}
+	
+	if(left_pair.first!=right_pair.first)
+		return left_pair.first > right_pair.first;
+  return left_pair.second > right_pair.second;
+}
+
+void aggregate_affinity(){
+  for(affinityHashMap::iterator iter=affEntries->begin(); iter!=affEntries->end(); ++iter){
+    if(iter->second.actual_windows!=NULL)
+      for(wsize_t wsize=2;wsize<=maxWindowSize;++wsize){
+        iter->second.actual_windows[wsize]+=iter->second.actual_windows[wsize-1];
+      }
+  }
 }
 
 
@@ -201,117 +251,131 @@ void find_optimal_layout(){
    and prints out the results */
 void find_affinity_groups(){
 
-
-  //printf("total units %d\n",totalUnits);
-  affinityHashMap::iterator iter;
-  int wsize,i;
-
-
-
-  for(iter=affEntries->begin(); iter!=affEntries->end(); ++iter){
-    if(iter->second.actual_windows!=NULL)
-      for(wsize=2;wsize<=maxWindowSize;++wsize){
-        iter->second.actual_windows[wsize]+=iter->second.actual_windows[wsize-1];
-      }
+	vector<funcpair_t> all_affEntry_iters;
+  for(affinityHashMap::iterator iter=affEntries->begin(); iter!=affEntries->end(); ++iter){
+    if(iter->first.first < iter->first.second)
+      all_affEntry_iters.push_back(iter->first);
   }
-
-  read_affinity_from_file("graph.babc");
-  save_affinity_into_file("graph.babc");
-
-  short freqlevel=0;
-  float rel_freq_threshold=1.0;
-
-  sets = new disjointSet**[maxFreqLevel];
-
-  while(freqlevel<maxFreqLevel){
-    sets[freqlevel]= new disjointSet*[1+maxWindowSize]; 
-    for(wsize=1;wsize<=maxWindowSize;++wsize){
-      sets[freqlevel][wsize]=new disjointSet[totalUnits];
-
-      for(i=0;i<totalUnits;++i){
-
-        sets[freqlevel][wsize][i].id=i;
-        if(wsize==1){
-          if(freqlevel==0){
-            sets[freqlevel][wsize][i].initSet(i);
-          }else{
-            sets[freqlevel][wsize][i].parent=&sets[freqlevel][wsize][(sets[freqlevel-1][maxWindowSize][i].parent)->id];
-            sets[freqlevel][wsize][i].rank=sets[freqlevel-1][maxWindowSize][i].rank;
-          }
-        }else{
-          sets[freqlevel][wsize][i].parent=&sets[freqlevel][wsize][(sets[freqlevel][wsize-1][i].parent)->id];
-          sets[freqlevel][wsize][i].rank=sets[freqlevel][wsize-1][i].rank;
-        }
-      }
+  sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),affEntryCmp);
+ 
+	orderFile = fopen("order.babc","w");
 
 
-      for(iter=affEntries->begin(); iter!=affEntries->end(); ++iter){
-        if(iter->second.actual_windows!=NULL)
-          if(rel_freq_threshold*(iter->second.actual_windows[wsize]) > iter->second.potential_windows )
-            sets[freqlevel][wsize][iter->first.first].unionSet(&sets[freqlevel][wsize][iter->first.second]);
-          //fprintf(errFile,"sets %d and %d for freqlevel=%d, wsize=%d, hlevel=%d\n",iter->first,iter->bb2,freqlevel,wsize,hlevel);
-      } 
-    }
-    freqlevel++;
-    rel_freq_threshold+=5.0/maxFreqLevel;
-  }
+	if(disjointSet::sets)
+  	for(func_t i=0; i<totalFuncs; ++i){
+			disjointSet::deallocate(i);
+		}
+  disjointSet::sets = new disjointSet *[totalFuncs];
+  for(func_t i=0; i<totalFuncs; ++i){
+  	disjointSet::init_new_set(i);
+	}
+
+  for(vector<funcpair_t>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
+			print_affinity(*iter);
+    	disjointSet::mergeSets(iter->first, iter->second);
+  } 
+
+  fclose(orderFile);
+
 }
+
+
+void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
+
+  disjointSet * merger = (set1->size()>=set2->size())?(set1):(set2);
+
+  disjointSet * mergee = (set1->size()<set2->size())?(set1):(set2);
+
+
+  funcpair_t frontMerger_backMergee(merger->elements.front(), mergee->elements.back());
+  funcpair_t backMerger_backMergee(merger->elements.back(), mergee->elements.back());
+  funcpair_t backMerger_frontMergee(merger->elements.back(), mergee->elements.front());
+  funcpair_t frontMerger_frontMergee(merger->elements.front(), mergee->elements.front());
+  funcpair_t conAffEntriesArray[4]={frontMerger_frontMergee, frontMerger_backMergee, backMerger_frontMergee, backMerger_backMergee};
+  vector<funcpair_t> conAffEntries(conAffEntriesArray,conAffEntriesArray+4);
+  sort(conAffEntries.begin(), conAffEntries.end(), affEntryCmp);
+
+  assert(affEntryCmp(conAffEntries[0],conAffEntries[1]) || (conAffEntries[0]==conAffEntries[1]));
+  assert(affEntryCmp(conAffEntries[1],conAffEntries[2]) || (conAffEntries[1]==conAffEntries[2]));
+  assert(affEntryCmp(conAffEntries[2],conAffEntries[3]) || (conAffEntries[2]==conAffEntries[3]));
+
+  bool con_mergee_front = (conAffEntries[0] == backMerger_frontMergee) || (conAffEntries[0] == frontMerger_frontMergee);
+  bool con_merger_front = (conAffEntries[0] == frontMerger_frontMergee) || (conAffEntries[0] == frontMerger_backMergee);
+
+  if(con_mergee_front){
+
+    for(deque<func_t>::iterator it=mergee->elements.begin(); it!=mergee->elements.end(); ++it){
+      if(con_merger_front)
+        merger->elements.push_front(*it);
+      else
+        merger->elements.push_back(*it);
+      disjointSet::sets[*it]=merger;
+    }
+  }else{
+    for(deque<func_t>::reverse_iterator rit=mergee->elements.rbegin(); rit!=mergee->elements.rend(); ++rit){
+      if(con_merger_front)
+        merger->elements.push_front(*rit);
+      else
+        merger->elements.push_back(*rit);
+      disjointSet::sets[*rit]=merger;
+    }
+  }
+
+  mergee->elements.clear();
+  delete mergee;
+}
+
 
 
 /* Must be called at exit*/
 void affinityAtExitHandler(){
-  //free immature windows
-  //list_remove_all(&window_list,NULL,free);
-  //
-  std::list<SampledWindow> * null_trace_list = new std::list<SampledWindow>();
-  SampledWindow sw = SampledWindow();
-  sw.partial_trace_list.push_front(-1);
-  null_trace_list->push_front(sw);
-
-  //trace_list_queue.push(null_trace_list);
-  //sem_post(&affinity_sem);
-
-  //pthread_join(update_affinity_thread,NULL);
-
-
+	aggregate_affinity();
+	read_affinity_from_file("graph.babc");
+  save_affinity_into_file("graph.babc");
+	affEntryCmp=affEntry2DCmp;
   find_affinity_groups();
-
-  find_optimal_layout();
-  fflush(errFile);
-  fclose(errFile);
-
+  print_optimal_layout();
+	if(DEBUG>0)
+  	fclose(debugFile);
 }
 
 
 void print_trace(list<SampledWindow> * tlist){
-  std::list<SampledWindow>::iterator window_iter=tlist->begin();
+  list<SampledWindow>::iterator window_iter=tlist->begin();
 
-  std::list<short>::iterator trace_iter;
+  list<func_t>::iterator trace_iter;
 
-  fprintf(errFile,"trace list:\n");
+  fprintf(debugFile,"trace list:\n");
   while(window_iter!=tlist->end()){
     trace_iter =  window_iter->partial_trace_list.begin();
-    fprintf(errFile,"windows: %d\n",window_iter->wcount);
+    fprintf(debugFile,"windows: %d\n",window_iter->wcount);
 
     while(trace_iter!=window_iter->partial_trace_list.end()){
-      fprintf(errFile,"%d ",*trace_iter);
+      fprintf(debugFile,"%d ",*trace_iter);
       trace_iter++;
     }
-    fprintf(errFile,"\n");
+    fprintf(debugFile,"\n");
     window_iter++;
   }
-  fprintf(errFile,"---------------------------------------------\n");
+  fprintf(debugFile,"---------------------------------------------\n");
 }
 
 
-
-
-
 static void save_affinity_environment_variables(void) {
-  const char *SampleRateEnvVar, *MaxWindowSizeEnvVar, *MaxFreqLevelEnvVar;
+  const char *SampleRateEnvVar, *MaxWindowSizeEnvVar, *MaxFreqLevelEnvVar, *MemoryLimitEnvVar, *DebugEnvVar;
+
+  if((DebugEnvVar = getenv("DEBUG")) !=NULL){
+    DEBUG = atoi(DebugEnvVar);
+  }
+
+  if ((MemoryLimitEnvVar = getenv("MEMORY_LIMIT")) != NULL) {
+    memoryLimit = atoi(MemoryLimitEnvVar);
+  }
 
   if ((SampleRateEnvVar = getenv("SAMPLE_RATE")) != NULL) {
-    sampleRate = (float)strtod(SampleRateEnvVar,NULL);
+    sampleRateLog = atoi(SampleRateEnvVar);
+    sampleSize= RAND_MAX >> sampleRateLog;
+    sampleMask = sampleSize ^ RAND_MAX;
   }
 
   if((MaxWindowSizeEnvVar = getenv("MAX_WINDOW_SIZE")) != NULL){
@@ -324,38 +388,30 @@ static void save_affinity_environment_variables(void) {
 
 }
 
-
-/* llvm_trace_basic_block - called upon hitting a new basic block. */
-extern "C" void llvm_trace_basic_block (short FuncNum) {
-    sample_window(FuncNum);
+extern "C" void llvm_trace_basic_block(func_t funcNum){
+	record_func_exec(funcNum);
 }
 
 extern "C" void llvm_init_affinity_analysis(int _totalFuncs){
-  errFile=fopen("err.out","w");
-  //errFile=stdout;
   totalFuncs=_totalFuncs;
   save_affinity_environment_variables();
-  sampledWindows=0;
   trace_list_size=0;
-  //debugFile=fopen("debug.txt","w");
   srand(time(NULL));
-  short i,wsize;
-  contains_func = new bool [totalUnits]();
-  func_window_it = new std::list<SampledWindow>::iterator [totalUnits];
-  func_trace_it = new std::list<short>::iterator [totalUnits];
+  contains_func = new bool [totalFuncs]();
+  func_window_it = new list<SampledWindow>::iterator [totalFuncs];
+  func_trace_it = new list<func_t>::iterator [totalFuncs];
   affEntries = new affinityHashMap();
-  //sem_init(&affinity_sem,0,1);
 
   analysis_switch = new bool [totalFuncs]();
   analyzed = new bool [totalFuncs]();
-  func_count = new int [totalFuncs]();
-  funcs = new short [totalFuncs];
-  preference = new short [totalFuncs];
-  stage_affinity = new int* [totalFuncs];
-  stage_affinity_sum = new int [totalFuncs];
-  potential_stage_windows = new int[totalFuncs];
+  func_count = new uint32_t [totalFuncs]();
+  funcs = new func_t [totalFuncs];
+  preference = new func_t [totalFuncs];
+  stage_affinity = new uint32_t* [totalFuncs];
+  stage_affinity_sum = new uint32_t [totalFuncs];
+  potential_stage_windows = new uint32_t[totalFuncs];
 
-  for(int i=0;i<totalFuncs; ++i){
+  for(func_t i=0;i<totalFuncs; ++i){
     funcs[i]=i;
     preference[i]=i;
   }
@@ -365,13 +421,17 @@ extern "C" void llvm_init_affinity_analysis(int _totalFuncs){
   // get prepared for the first counting stage 
   func_counting = true;
   stage_time = stage_quantum = quantum;
+  if(DEBUG > 0)
+    debugFile = fopen("debug.txt","w");
 
+	zero_count_array = new uint32_t [maxWindowSize+1]();
+	zero_aff_wcount = affWcounts(0,zero_count_array);
 }
 
 
 int compare_count (const void * p1, const void * p2){
-  short func1= * (short *)p1;
-  short func2= * (short *)p2;
+  func_t func1= * (func_t *)p1;
+  func_t func2= * (func_t *)p2;
   if(func_count[func1] > func_count[func2])
     return -1;
   if(func_count[func1] < func_count[func2])
@@ -379,24 +439,20 @@ int compare_count (const void * p1, const void * p2){
   return 0;
 }
 
-int compare_pw_freq(const void * p1, const void *p2){
-  short func1 = * (short *)p1;
-  short func2 = * (short *) p2;
+int compare_stage_affinity_sum(const void * p1, const void *p2){
+  func_t func1 = * (func_t *)p1;
+  func_t func2 = * (func_t *) p2;
 
   if(func1==now_analyzed_func)
     return -1;
   if(func2==now_analyzed_func)
     return 1;
 
-  int wsize;
-  for(wsize=1; wsize<=maxWindowSize; ++wsize){
-      if(stage_affinity[func1]!=NULL && (stage_affinity[func1][wsize]*5 > stage_windows))
-          if(stage_affinity[func2]==NULL || (stage_affinity[func1][wsize] > stage_affinity[func2][wsize]))
-        return -1;
-      if(stage_affinity[func2]!=NULL && (stage_affinity[func2][wsize]*5 > stage_windows))
-          if(stage_affinity[func1]==NULL || (stage_affinity[func2][wsize] > stage_affinity[func1][wsize]))
-            return 1;
-  }
+	if(stage_affinity_sum[func1] > stage_affinity_sum[func2])
+			return -1;
+	
+	if(stage_affinity_sum[func2] > stage_affinity_sum[func1])
+			return 1;
 
   return 0;
   
@@ -404,13 +460,13 @@ int compare_pw_freq(const void * p1, const void *p2){
 
 void update_overal_affinity(){
 
-  for(short funcNum=0; funcNum<totalFuncs; ++funcNum){
+  for(func_t funcNum=0; funcNum<totalFuncs; ++funcNum){
     if(stage_affinity[funcNum]!=NULL){
-      affPair pair(now_analyzed_func, funcNum);
-      affinityHashMap::iterator result=affEntries->find(pair);
+			funcpair_t fp(now_analyzed_func, funcNum);
+      affinityHashMap::iterator result=affEntries->find(fp);
 
       if(result==affEntries->end()){
-        (*affEntries)[pair] = affWcounts(potential_stage_windows[funcNum],stage_affinity[funcNum]);
+        (*affEntries)[fp] = affWcounts(potential_stage_windows[funcNum],stage_affinity[funcNum]);
       }else{
         result->second.potential_windows += potential_stage_windows[funcNum];
         if(result->second.actual_windows==NULL)
@@ -429,42 +485,60 @@ void update_overal_affinity(){
 }
 
 void cut_analysis_set_in_half(){
-  qsort(preference, analysis_set_size, sizeof(short), compare_pw_freq);
+  qsort(preference, analysis_set_size, sizeof(func_t), compare_stage_affinity_sum);
   int sum_affinity =0;
-  short i;
+  func_t i;
   
+	if(DEBUG>0){
+		fprintf(debugFile,"*************************\n");
+  	fprintf(debugFile,"cutting the analysis set in half.\n");
+		fprintf(debugFile,"Number of windows in the current stage: %u\n",stage_windows);
+	}
+
   for(i=0;i<analysis_set_size; ++i){
     potential_stage_windows[preference[i]] = stage_windows;
-    if(stage_affinity_sum[preference[i]]!=0)
+		assert(stage_windows >= stage_affinity_sum[preference[i]]);
+		if(DEBUG>0)
+			fprintf(debugFile,"stage_affinity_sum[%hu]=%u\n",preference[i],stage_affinity_sum[preference[i]]);
+    if(stage_affinity_sum[preference[i]]!=0 || preference[i]==now_analyzed_func)
         sum_affinity += stage_affinity_sum[preference[i]];
-	else
-		break;
+		else
+			break;
   }
 
   int half_sum_affinity=0;
 
-  for(i=0;i<analysis_set_size && (half_sum_affinity*2 < sum_affinity) ; ++i)
-	half_sum_affinity += stage_affinity_sum[preference[i]];
-    //if(stage_affinity_sum[preference[i]]!=0)
+  for(i=0;i<analysis_set_size && (half_sum_affinity*2 < sum_affinity) ; ++i){
+		half_sum_affinity += stage_affinity_sum[preference[i]];
+		if(half_sum_affinity*2 >= sum_affinity)
+			break;
+	}
 
-  for(short j=i;j<analysis_set_size; ++j)
+	/*
+	 * Turn off the analysis switch for the second half
+	 */
+  for(func_t j=i;j<analysis_set_size; ++j)
     analysis_switch[preference[j]]=false;
 
   analysis_set_size = i;
 
-  //fprintf(errFile,"analysis set size is now halved: %d\n",analysis_set_size);
+	if(DEBUG>0)
+		fprintf(debugFile,"New analysis set size: %hu\n",analysis_set_size);
+
 
   /*
-   * We stop analysis if the analysis set size falls below 6
+   * We stop analysis if the analysis set size falls below 1
    */
-  if(analysis_set_size <= 1){
+  if(analysis_set_size <= 2){
+		if(DEBUG>0)
+			fprintf(debugFile,"analysis stage is over. Starting function counting\n");
     /*
      * We update the overal affinity (hashtable)
      */
     update_overal_affinity();
     
     trace_list.clear();
-    for(short j=0; j<totalFuncs; ++j)
+    for(func_t j=0; j<totalFuncs; ++j)
       contains_func[j]=false;
 
     trace_list_size=0;
@@ -472,11 +546,11 @@ void cut_analysis_set_in_half(){
     func_counting=true;
     for(i=0; i<totalFuncs; ++i){
       analysis_switch[i]=false;
-		func_count[i]=0;
+			func_count[i]=0;
     }
     stage_time = stage_quantum = quantum;
   }else{
-    stage_time = stage_quantum = stage_quantum*2;
+    stage_time = stage_quantum = stage_quantum;
   }
 
 }
@@ -490,33 +564,57 @@ void proceed_to_next_stage(){
    * If all functions have already been analyzed, we start over.
    */
   if(func_counting){
-    qsort(funcs, totalFuncs, sizeof(short), compare_count);
-    short i=0;
+		if(DEBUG>0)
+			fprintf(debugFile,"function counting is over. Sorting functions to pick the new analyzed function.\n");
+		uint32_t total_counts=0;
+		for(func_t i=0; i < totalFuncs; i++){
+			if(func_count[i]){
+				total_counts += func_count[i];
+				if(rand()%total_counts < func_count[i])
+					now_analyzed_func = i;
+			}
+		}
+
+		if(DEBUG>0)
+			fprintf(debugFile,"Now analyzing function:%hu\n",now_analyzed_func);
+		/*
+    qsort(funcs, totalFuncs, sizeof(func_t), compare_count);
+    func_t i=0;
     while(i<totalFuncs){
+			if(DEBUG>1)
+				fprintf(debugFile,"func_count[%hu]=%u\n",funcs[i],func_count[funcs[i]]);
       if(!analyzed[funcs[i]]){
-        now_analyzed_func=funcs[i];
-        analyzed[funcs[i]]=true;
+					if(DEBUG>0)
+						fprintf(debugFile,"Now analyzing function:%hu\n",funcs[i]);
+        	now_analyzed_func=funcs[i];
+        	analyzed[funcs[i]]=true;
         break;
       }
       i++;
     }
+		*/
 
     /*
      * If all functions have been analyzed, we start over (we set the analyzed
      * bit of every function and pick funcs[0] 
-     */
+     
     if(i==totalFuncs){
-      for(short j=0; j<totalFuncs; ++j)
+			if(DEBUG>0)
+				fprintf(debugFile,"One pass of analysis is done. Starting over.\n");
+      for(func_t j=0; j<totalFuncs; ++j)
         analyzed[j]=false;
+			if(DEBUG>0)
+					fprintf(debugFile,"Now analyzing function:%hu\n",funcs[0]);
       now_analyzed_func = funcs[0];
       analyzed[funcs[0]]=true;
     }
+		*/
     
     /*
      * Initially we turn on the analysis switch for all functions. These switches
      * will be turned off over time.
      */
-    for(i=0; i<totalFuncs; ++i){
+    for(func_t i=0; i<totalFuncs; ++i){
       analysis_switch[i]=true;
       potential_stage_windows[i]=0;
       stage_affinity_sum[i]=0;
@@ -552,73 +650,58 @@ void proceed_to_next_stage(){
   else{
     cut_analysis_set_in_half();
   }
-/*
-  fprintf(errFile,"this is the current stage:\n");
-  if(func_counting)
-    fprintf(errFile,"function counting\n");
-  else
-    fprintf(errFile,"analyzing function %d, with analysis set size %d\n",now_analyzed_func, analysis_set_size);
-*/
 
 
 }
 
 
-extern "C" bool get_switch(short FuncNumber){
-  //fprintf(errFile,"FuncNumber:%d\tstage time:%d\tanalysis_switch:%d\n",FuncNumber,stage_time,analysis_switch[FuncNumber]);
-  //return true;
+extern "C" bool get_switch(func_t FuncNumber){
   if(stage_time==0)
     proceed_to_next_stage();
   if(func_counting)
     func_count[FuncNumber]++;
   --stage_time;
-  //return (FuncNumber!=1584 && FuncNumber!=1691 && FuncNumber!=3245);
-  	return analysis_switch[FuncNumber];
+  return analysis_switch[FuncNumber];
 }
 
-void update_stage_affinity(short FuncNum, std::list<SampledWindow>::iterator update_window_end){
+void update_stage_affinity(func_t FuncNum, list<SampledWindow>::iterator update_window_end){
     /* We move toward the tail of the list until we hit update_window_end 
      * For every partial trace lis (window), we update the affinity between
      * now_analyzed_func and FuncNum.
      */
-  if(!analysis_switch[FuncNum])
-    return;
-  int window_size = 0;
+ 	wsize_t window_size = 0;
   tl_window_iter=trace_list.begin();
-  //print_trace(&trace_list);
+
   while(tl_window_iter != update_window_end){
-    //fprintf(errFile,"iterators are % and end is %s\n",trace_list.begin(),update_window_end);
     window_size += tl_window_iter->partial_trace_list.size();
     if(stage_affinity[FuncNum]==NULL){
-      stage_affinity[FuncNum]=new int[maxWindowSize+1]();
-	//fprintf(errFile,"newed one time for (%d,%d)\n",now_analyzed_func,FuncNum);
-	}
-    //printf("window size is %d\n",window_size);
+      stage_affinity[FuncNum]=new uint32_t[maxWindowSize+1]();
+		}
+		if(DEBUG>0)
+			fprintf(debugFile,"incrementing affinity pair (%hu,%hu)[%hu] by %d\n",now_analyzed_func,FuncNum,window_size,tl_window_iter->wcount);
     stage_affinity[FuncNum][window_size]+=tl_window_iter->wcount;
     stage_affinity_sum[FuncNum]+=tl_window_iter->wcount;
-    //trace_list_to_update->push_back(*tl_window_iter);  
     tl_window_iter++;
   }
 
 }
 
 
-void sample_window(short FuncNum){
-  //printf("contains_func[%d]=%d\n",FuncNum,contains_func[FuncNum]);
-  //printf("size of the trace list is %d\n",trace_list_size);
-  
-  //printf("now analyzed func is %d\n",now_analyzed_func);
-  //fprintf(errFile,"stage time is %d\n",stage_time);
-  //printf("stage quantum time is %d\n",stage_quantum);
-  //print_trace(&trace_list);
+void record_func_exec(func_t FuncNum){
+  if(DEBUG>2){
+		fprintf(debugFile,"****************************\n");
+		fprintf(debugFile,"stage time is %d\n",stage_time);
+		fprintf(debugFile,"recording function %hu\n",FuncNum);
+		print_trace(&trace_list);
+	}
 
-  //int r=rand()%10000000;
-  //if(r < sampleRate*10000000){
+	if(!analysis_switch[FuncNum])
+		return;
+
   if(FuncNum==now_analyzed_func){
     stage_windows++;
     SampledWindow sw;
     sw.wcount=1;
-    //sw.partial_trace_list.push_front(FuncNum);
     trace_list.push_front(sw);
   }
 
@@ -626,16 +709,12 @@ void sample_window(short FuncNum){
     trace_list.front().partial_trace_list.push_front(FuncNum);
   else
     return;
-
-  //std::list<SampledWindow> * trace_list_to_update = NULL;
-
+	
   /*
    * Check if the same function record exists somewhere in the trace.
    * If it does not exist, we don't need to refine the trace anymore.
    */
   if(!contains_func[FuncNum]){
-    //printf("found FuncNum:%d in trace\n",FuncNum);
-    //print_trace(&trace_list);
     
     //Increment the overal length of the trace list.
     trace_list_size++;
@@ -647,7 +726,7 @@ void sample_window(short FuncNum){
     if(trace_list_size > maxWindowSize){
 
       // Get the last partial trace list
-      std::list<short> * last_window_trace_list= &trace_list.back().partial_trace_list;
+      list<func_t> * last_window_trace_list= &trace_list.back().partial_trace_list;
 
       // Decrement the overal size of the trace list
       trace_list_size-=last_window_trace_list->size();
@@ -663,7 +742,7 @@ void sample_window(short FuncNum){
     }
     
     // Do the update in the if statement
-    //trace_list_to_update = new std::list<SampledWindow>(trace_list);
+    //trace_list_to_update = new list<SampledWindow>(trace_list);
     
 
     /*
@@ -679,7 +758,8 @@ void sample_window(short FuncNum){
 
       // Update the affinity between now_analyzed_func and FuncNum according to
       // all the windows in the trace list.
-      update_stage_affinity(FuncNum,trace_list.end());
+			if(FuncNum!=now_analyzed_func)
+      	update_stage_affinity(FuncNum,trace_list.end());
     }
   }
   /*
@@ -688,16 +768,9 @@ void sample_window(short FuncNum){
    * and add the new one. The size of the trace list will not change.
    */
   else{
-    //trace_list_to_update = new std::list<SampledWindow>();
-
-    update_stage_affinity(FuncNum,func_window_it[FuncNum]);
-    /*tl_window_iter=trace_list.begin();
-    while(tl_window_iter != func_window_it[FuncNum]){
-      trace_list_to_update->push_back(*tl_window_iter);
-      
-      tl_window_iter++;
-    }*/
-
+    //trace_list_to_update = new list<SampledWindow>();
+		if(FuncNum!=now_analyzed_func)
+    	update_stage_affinity(FuncNum,func_window_it[FuncNum]);
 
     tl_window_iter = func_window_it[FuncNum];
     tl_window_iter->partial_trace_list.erase(func_trace_it[FuncNum]);
@@ -716,102 +789,7 @@ void sample_window(short FuncNum){
 
   }
 
-/*
-  if(!trace_list_to_update->empty()){
-    trace_list_queue.push(trace_list_to_update);
-    sem_post(&affinity_sem);
-  }else
-    delete trace_list_to_update;
-*/
-  //update_affinity();
 
 }
 
-
-SampledWindow::SampledWindow(const SampledWindow & sw){
-  wcount=sw.wcount;
-  partial_trace_list = std::list<short>(sw.partial_trace_list);
-}
-
-SampledWindow::SampledWindow(){
-  wcount=0;
-  partial_trace_list = std::list<short>();
-}
-
-
-
-affPair::affPair(short _first, short _second){
-  //if(_first<_second){
-    first=_first;
-    second=_second;
-  //}else{
-  //  first=_second;
-  //  second=_first;
-  //}
-}
-
-affPair::affPair(){}
-
-affWcounts::affWcounts(int _potential_windows, int * _actual_windows){
-  potential_windows=_potential_windows;
-  actual_windows=_actual_windows;
-}
-
-affWcounts::affWcounts(){}
-
-bool eqAffPair::operator()(affPair const& pair1, affPair const& pair2) const{
-  //return ((entry1.first == entry2.first) && (entry1.second == entry2.second));
-  return (pair1.first == pair2.first);
-}
-
-
-
-size_t affPair_hash::operator()(affPair const& pair)const{
-  //return MurmurHash2(&entry,sizeof(entry),5381);
-  return pair.first*5381+pair.second;
-}
-
-
-
-
-void disjointSet::initSet(unsigned _id){
-  id=_id;
-  parent = this;
-  rank=0;
-  size=1;
-}
-
-
-void disjointSet::unionSet(disjointSet* set2){
-
-  disjointSet * root1=this->find();
-  disjointSet * root2=set2->find();
-  if(root1==root2)
-    return;
-
-  //x and y are not already in the same set. merge them.
-  if(root1->rank < root2->rank){
-    root1->parent=root2;
-    root2->size+=root1->size;
-  }else if(root1->rank > root2->rank){
-    root2->parent=root1;
-    root1->size+=root2->size;
-  }else{
-    root2->parent=root1;
-    root1->rank++;
-    root1->size+=root2->size;
-  }
-}
-
-unsigned disjointSet::getSize(){
-  return find()->size;
-}
-
-disjointSet* disjointSet::find(){
-  //fprintf(errFile,"%x %d\n",set,set->id);
-  if(this->parent!=this){
-    this->parent=this->parent->find();
-  }
-  return this->parent;
-}
 
