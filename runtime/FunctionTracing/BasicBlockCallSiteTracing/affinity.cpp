@@ -53,13 +53,44 @@ uint32_t ** GetNewMatrix(){
   return ret;
 }
 
+uint32_t * emplace(JointFreqMap &jfm, const RecordPair &rec_pair){
+	JointFreqMap::iterator result = jfm.find(rec_pair);
+	if(result==jfm.end())
+		return (jfm[rec_pair]=GetNewArray());
+	else
+		return jfm[rec_pair];
+}
+
+uint32_t * emplace(SingleFreqMap &sfm, const Record &rec){
+	SingleFreqMap::iterator result = sfm.find(rec);
+	if(result==sfm.end())
+		return (sfm[rec]=GetNewArray());
+	else
+		return sfm[rec];
+}
+
+uint32_t ** emplace(SingleFreqRangeMap &sfrm, const Record &rec){
+	SingleFreqRangeMap::iterator result = sfrm.find(rec);
+	if(result==sfrm.end())
+		return (sfrm[rec]=GetNewMatrix());
+	else
+		return sfrm[rec];
+}
+
+uint32_t ** emplace(JointFreqRangeMap &jfrm, const RecordPair &rec_pair){
+	JointFreqRangeMap::iterator result = jfrm.find(rec_pair);
+	if(result==jfrm.end())
+		return (jfrm[rec_pair]=GetNewMatrix());
+	else
+		return jfrm[rec_pair];
+}
 
 void create_single_freqs(){
    SingleFreqRangeMap::iterator it_end= single_freq_ranges.end();
   for(SingleFreqRangeMap::iterator it=single_freq_ranges.begin(); it!=it_end; ++it){
     Record rec = it->first;
     uint32_t ** freq_range_matrix = it->second;
-    uint32_t * freq_array =single_freqs.emplace(rec,GetNewArray()).first->second;
+    uint32_t * freq_array =emplace(single_freqs,rec);
   
     /*
     if(result== single_freqs.end())
@@ -80,7 +111,7 @@ void create_joint_freqs(){
   for(JointFreqRangeMap::iterator it=joint_freq_ranges.begin(); it!=it_end; ++it){	
     RecordPair rec_pair = it->first;
     uint32_t ** freq_range_matrix = it->second;
-    uint32_t * freq_array = joint_freqs.emplace(rec_pair,GetNewArray()).first->second;
+    uint32_t * freq_array = emplace(joint_freqs,rec_pair);
 
     for(int i=2; i<=maxWindowSize;++i)
       for(int j=i; j<=maxWindowSize; ++j)
@@ -95,7 +126,7 @@ void commit_freq_updates(SampledWindow &sw, wsize_t max_wsize){
     sw.single_update_list.pop_front();
 
     assert(sue.min_wsize <= max_wsize);
-    uint32_t ** single_freq_range_matrix = single_freq_ranges.emplace(sue.rec,GetNewMatrix()).first->second;
+    uint32_t ** single_freq_range_matrix = emplace(single_freq_ranges,sue.rec);
     single_freq_range_matrix[sue.min_wsize][max_wsize]++;
   }
 
@@ -105,7 +136,7 @@ void commit_freq_updates(SampledWindow &sw, wsize_t max_wsize){
 
     assert(jue.min_wsize <= max_wsize);
 
-    uint32_t ** joint_freq_range_matrix=joint_freq_ranges.emplace(jue.rec_pair,GetNewMatrix()).first->second;
+    uint32_t ** joint_freq_range_matrix=emplace(joint_freq_ranges,jue.rec_pair);
     /*
     JointFreqRangeMap::iterator result=joint_freq_ranges->find(jue.rec_pair);
     if(result == joint_freq_ranges->end()){
@@ -303,7 +334,7 @@ void aggregate_affinity(){
     uint32_t sfreq,jfreq;
     for(uint32_t i=0; i<sfreq_size; ++i){
       fscanf(graphFile,"(%hu,%hu):",&fid1,&bbid1);
-      uint32_t * freq_array = single_freqs.emplace(Record(fid1,bbid1),GetNewArray()).first->second;
+      uint32_t * freq_array = emplace(single_freqs,Record(fid1,bbid1));
       for(wsize_t wsize=1; wsize<=maxWindowSize; ++wsize){
         fscanf(graphFile,"%u ",&sfreq);
         freq_array[wsize]+=sfreq;
@@ -313,7 +344,7 @@ void aggregate_affinity(){
     for(uint32_t i=0; i<jfreq_size; ++i){
       fscanf(graphFile,"[(%hu,%hu),(%hu,%hu)]:",&fid1,&bbid1,&fid2,&bbid2);
       RecordPair rec_pair=RecordPair(Record(fid1,bbid1),Record(fid2,bbid2));
-      uint32_t * freq_array = joint_freqs.emplace(rec_pair,GetNewArray()).first->second;
+      uint32_t * freq_array = emplace(joint_freqs,rec_pair);
       /*
       uint32_t * freq_array=joint_freqs[entryToAdd];
       if(freq_array==NULL){
@@ -376,7 +407,7 @@ void find_affinity_groups(){
 
   for(vector<RecordPair>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
     fprintf(orderFile,"[(%hu,%hu),(%hu,%hu)]\n",iter->first.getFuncId(),iter->first.getBBId(),iter->second.getFuncId(),iter->second.getBBId());
-    disjointSet::mergeSets(iter->first, iter->second);
+    disjointSet::mergeSets(*iter);
   } 
 
   fclose(orderFile);
@@ -454,7 +485,7 @@ wsize_t sequential_update_affinity(list<SampledWindow>::iterator grown_list_end)
 
         while(window_iter != grown_list_end){
           wsize+=window_iter->wsize;
-          JointUpdateEntry jue(unordered_RecordPair(rec,oldRec),wsize);
+          JointUpdateEntry jue(RecordPair(oldRec,rec),wsize);
           window_iter->add_joint_update_entry(jue);
 
           if(DEBUG>1){
@@ -536,11 +567,47 @@ uint32_t * GetWithDef(JointFreqMap  &m, const RecordPair &key, uint32_t * defval
     return it->second;
   }
 }
+bool affEntryFirstCmp(const RecordPair &left_pair, const RecordPair &right_pair){
 
-bool affEntry2DCmp(const RecordPair &left_pair, const RecordPair &right_pair){
   uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
   uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
 
+	for(short wsize=2;wsize<=maxWindowSize;++wsize){
+		if(jointFreq_left[wsize] > jointFreq_right[wsize])
+			return true;
+		if(jointFreq_left[wsize] < jointFreq_right[wsize])
+			return false;
+
+	}
+
+	if(left_pair.first != right_pair.first)
+    return (right_pair.first < left_pair.first);
+
+  return right_pair.second < left_pair.second;
+
+}
+
+
+
+bool affEntry2DCmp(const RecordPair &left_pair, const RecordPair &right_pair){
+	RecordPair left_pair_rev(left_pair.second,left_pair.first);
+	RecordPair right_pair_rev(right_pair.second,right_pair.first);
+
+  uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
+  uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
+	uint32_t * jointFreq_left_rev = GetWithDef(joint_freqs, left_pair_rev, null_joint_freq);
+  uint32_t * jointFreq_right_rev = GetWithDef(joint_freqs, right_pair_rev, null_joint_freq);
+
+	uint32_t left_val = jointFreq_left[maxWindowSize]+jointFreq_left_rev[maxWindowSize];
+	uint32_t right_val = jointFreq_right[maxWindowSize]+jointFreq_right_rev[maxWindowSize];
+
+	if(left_val > right_val)
+		return true;
+	
+	if(left_val < right_val)
+		return false;
+
+/*
   int left_pair_val, right_pair_val;
 
   short freqlevel;
@@ -566,6 +633,7 @@ bool affEntry2DCmp(const RecordPair &left_pair, const RecordPair &right_pair){
     freqlevel++;
     rel_freq_threshold+=5.0/maxFreqLevel;
   }
+	*/
 
   if(left_pair.first != right_pair.first)
     return (right_pair.first < left_pair.first);
@@ -575,7 +643,35 @@ bool affEntry2DCmp(const RecordPair &left_pair, const RecordPair &right_pair){
 }
 
 
+void disjointSet::mergeSets(const RecordPair &p){
 
+  if(disjointSet::sets[p.first]==disjointSet::sets[p.second])
+		return;
+		
+	disjointSet * merger,* mergee;
+
+	RecordPair p_rev(p.second,p.first);
+	RecordPair pair_array[2]={p,p_rev};
+	vector<RecordPair> pair_vector(pair_array,pair_array+2);
+	sort(pair_vector.begin(),pair_vector.end(),affEntryFirstCmp);
+
+	if(pair_vector[0]==p){
+		merger = disjointSet::sets[p.first];	
+		mergee = disjointSet::sets[p.second];	
+	}else{
+		merger = disjointSet::sets[p.second];	
+		mergee = disjointSet::sets[p.first];	
+	}
+	
+	for(deque<Record>::iterator it=mergee->elements.begin(); it!=mergee->elements.end(); ++it){
+		merger->elements.push_back(*it);
+		disjointSet::sets[*it]=merger;
+  }
+
+	mergee->elements.clear();
+  	delete mergee;
+
+}
 
 void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
 
@@ -590,11 +686,11 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
   RecordPair frontMerger_frontMergee(merger->elements.front(), mergee->elements.front());
   RecordPair conAffEntriesArray[4]={frontMerger_frontMergee, frontMerger_backMergee, backMerger_frontMergee, backMerger_backMergee};
   vector<RecordPair> conAffEntries(conAffEntriesArray,conAffEntriesArray+4);
-  sort(conAffEntries.begin(), conAffEntries.end(), affEntryCmp);
+  sort(conAffEntries.begin(), conAffEntries.end(), affEntry2DCmp);
 
-  assert(affEntryCmp(conAffEntries[0],conAffEntries[1]) || (conAffEntries[0]==conAffEntries[1]));
-  assert(affEntryCmp(conAffEntries[1],conAffEntries[2]) || (conAffEntries[1]==conAffEntries[2]));
-  assert(affEntryCmp(conAffEntries[2],conAffEntries[3]) || (conAffEntries[2]==conAffEntries[3]));
+  //assert(affEntryCmp(conAffEntries[0],conAffEntries[1]) || (conAffEntries[0]==conAffEntries[1]));
+  //assert(affEntryCmp(conAffEntries[1],conAffEntries[2]) || (conAffEntries[1]==conAffEntries[2]));
+  //assert(affEntryCmp(conAffEntries[2],conAffEntries[3]) || (conAffEntries[2]==conAffEntries[3]));
 
   bool con_mergee_front = (conAffEntries[0] == backMerger_frontMergee) || (conAffEntries[0] == frontMerger_frontMergee);
   bool con_merger_front = (conAffEntries[0] == frontMerger_frontMergee) || (conAffEntries[0] == frontMerger_backMergee);

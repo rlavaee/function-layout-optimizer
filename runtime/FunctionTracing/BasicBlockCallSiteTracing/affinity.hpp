@@ -124,6 +124,7 @@ struct disjointSet {
   deque<Record> elements;
   size_t size(){ return elements.size();}
   static void mergeSets(disjointSet *, disjointSet *);
+	static void mergeSets(const RecordPair &p);
   static void mergeSets(Record rec1, Record rec2){
     if(sets[rec1]!=sets[rec2])
       mergeSets(sets[rec1],sets[rec2]);
@@ -167,4 +168,5 @@ void affinityAtExitHandler();
 bool (*affEntryCmp)(const RecordPair& pair_left, const RecordPair& pair_right);
 //bool affEntry1DCmp(const RecordPair& pair_left, const RecordPair& pair_right);
 bool affEntry2DCmp(const RecordPair& pair_left, const RecordPair& pair_right);
+bool affEntryFirstCmp(const RecordPair& pair_left, const RecordPair& pair_right);
 #endif /* AFFINITY_HPP */

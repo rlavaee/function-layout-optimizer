@@ -1,5 +1,6 @@
 LEVEL= ..
 PROG=prog
+BB_ABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libbb_call_site_tracing_rt.a
 ABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcall_site_tracing_rt.a
 BABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libbursty_call_site_tracing_rt.a
 AABC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libadv_call_site_tracing_rt.a
@@ -14,12 +15,14 @@ ICC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcache_counting_rt.a
 LIBPAPI=$(HOME)/usr/local/lib/libpapi.a
 BITCODED = $(PROG).bc
 COMPILED = $(PROG).out
+BB_ABC_TR	= $(PROG).bb_abc_tr.out
 ABC_TR	= $(PROG).abc_tr.out
 BABC_TR	= $(PROG).babc_tr.out
 AABC_TR = $(PROG).aabc_tr.out
 FABC_TR = $(PROG).fabc_tr.out
 AWABC_TR = $(PROG).awabc_tr.out
 ABC_OUT	= $(PROG).abc.out
+BB_ABC_OUT = $(PROG).bb_abc.out
 
 BABC_OUT = $(PROG).babc.out
 ICC_OUT = $(PROG).icc.out
@@ -42,6 +45,11 @@ $(AABC_TR): $(BITCODED) $(AABC_RT_LIB) $(ABC_LLVM_LIB)
 	opt -load $(ABC_LLVM_LIB) -trace-call-sites $< -o $@.bc
 	llc $@.bc -o $@.s
 	clang++ $@.s $(AABC_RT_LIB) -o $@ -lpthread
+
+$(BB_ABC_TR): $(BITCODED) $(BB_ABC_RT_LIB) $(ABC_LLVM_LIB)
+	opt -load $(ABC_LLVM_LIB) -trace-call-sites-bb-level $< -o $@.bc
+	llc $@.bc -o $@.s
+	clang++ $@.s $(BB_ABC_RT_LIB) -o $@
 
 $(BABC_TR): $(BITCODED) $(BABC_RT_LIB) $(ABC_LLVM_LIB)
 	opt -load $(ABC_LLVM_LIB) -bursty-trace-call-sites $< -o $@.bc
@@ -69,6 +77,10 @@ $(ABC_OUT): layout.abc $(BITCODED)
 	llc $@.bc -o $@.s
 	gcc $@.s -o $@
 
+$(BB_ABC_OUT): $(BITCODED) layout.bbabc
+	abc-llc $< -o $@.s
+	clang++ $@.s -o $@
+
 $(ABC_TR): $(BITCODED)
 	opt -load $(ABC_LLVM_LIB) -trace-call-sites $< -o $@.bc
 	llc $@.bc -o $@.s
@@ -80,7 +92,7 @@ $(BITCODED): test.c test_util.c
 	llvm-link test.bc test_util.bc -o $@
 
 $(COMPILED): $(BITCODED)
-	llc -fno-asynchronous-unwind-tables $< -o $(PROG).s
+	llc  $< -o $(PROG).s
 	clang $(PROG).s -o $@
  
 
