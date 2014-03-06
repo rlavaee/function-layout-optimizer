@@ -9,16 +9,14 @@
 int DEBUG;
 FILE * comparisonFile, * orderFile, * traceFile;
 wsize_t maxWindowSize;
-int memoryLimit;
 int sampleRateLog;
 uint32_t sampleSize;
 uint32_t sampleMask;
 short maxFreqLevel;
 
 JointFreqMap joint_freqs;
-JointFreqRangeMap joint_freq_ranges;
 
-SingleFreqRangeMap single_freq_ranges; 
+//TODO Consider adding single freqs later on
 SingleFreqMap single_freqs;
 
 std::unordered_map<const Record,bool,RecordHash> contains_func;
@@ -29,7 +27,7 @@ list<SampledWindow> trace_list;
 
 wsize_t trace_list_size;
 
-list<SampledWindow>::iterator window_iter;
+list<SampledWindow>::iterator window_iter,window_iter_prev, grown_list_iter;
 list<SampledWindow>::iterator top_window_iter;
 list<Record>::iterator func_iter;
 list<Record>::iterator partial_trace_list_end;
@@ -39,125 +37,9 @@ list<Record> * last_window_trace_list;
 
 FILE * graphFile, * debugFile;
 
-uint32_t * null_joint_freq = new uint32_t[maxWindowSize+1]();
+uint32_t * null_joint_freq = new uint32_t[maxWindowSize]();
 const char * version_str=".bbabc";
 
-uint32_t * GetNewArray(){
-  return new uint32_t [maxWindowSize+1]();
-}
-
-uint32_t ** GetNewMatrix(){
-  uint32_t ** ret = new uint32_t *[maxWindowSize+1]();
-  for(wsize_t i=0;i<=maxWindowSize; ++i)
-    ret[i]=new uint32_t [maxWindowSize+1]();
-  return ret;
-}
-
-uint32_t * emplace(JointFreqMap &jfm, const RecordPair &rec_pair){
-	JointFreqMap::iterator result = jfm.find(rec_pair);
-	if(result==jfm.end())
-		return (jfm[rec_pair]=GetNewArray());
-	else
-		return jfm[rec_pair];
-}
-
-uint32_t * emplace(SingleFreqMap &sfm, const Record &rec){
-	SingleFreqMap::iterator result = sfm.find(rec);
-	if(result==sfm.end())
-		return (sfm[rec]=GetNewArray());
-	else
-		return sfm[rec];
-}
-
-uint32_t ** emplace(SingleFreqRangeMap &sfrm, const Record &rec){
-	SingleFreqRangeMap::iterator result = sfrm.find(rec);
-	if(result==sfrm.end())
-		return (sfrm[rec]=GetNewMatrix());
-	else
-		return sfrm[rec];
-}
-
-uint32_t ** emplace(JointFreqRangeMap &jfrm, const RecordPair &rec_pair){
-	JointFreqRangeMap::iterator result = jfrm.find(rec_pair);
-	if(result==jfrm.end())
-		return (jfrm[rec_pair]=GetNewMatrix());
-	else
-		return jfrm[rec_pair];
-}
-
-void create_single_freqs(){
-   SingleFreqRangeMap::iterator it_end= single_freq_ranges.end();
-  for(SingleFreqRangeMap::iterator it=single_freq_ranges.begin(); it!=it_end; ++it){
-    Record rec = it->first;
-    uint32_t ** freq_range_matrix = it->second;
-    uint32_t * freq_array =emplace(single_freqs,rec);
-  
-    /*
-    if(result== single_freqs.end())
-      single_freqs[rec]= freq_array=new uint32_t[maxWindowSize+1]();
-    else
-      freq_array=result->second;
-      */
-
-    for(wsize_t i=1; i<= maxWindowSize; ++i)
-      for(wsize_t j=i; j<= maxWindowSize; ++j)
-        for(wsize_t k=i; k<=j; ++k)
-          freq_array[k]+=freq_range_matrix[i][j];
-  }
-}
-
-void create_joint_freqs(){
-  JointFreqRangeMap::iterator it_end= joint_freq_ranges.end();
-  for(JointFreqRangeMap::iterator it=joint_freq_ranges.begin(); it!=it_end; ++it){	
-    RecordPair rec_pair = it->first;
-    uint32_t ** freq_range_matrix = it->second;
-    uint32_t * freq_array = emplace(joint_freqs,rec_pair);
-
-    for(int i=2; i<=maxWindowSize;++i)
-      for(int j=i; j<=maxWindowSize; ++j)
-        for(int k=i; k<=j; ++k)
-          freq_array[k]+=freq_range_matrix[i][j];
-  } 
-}
-void commit_freq_updates(SampledWindow &sw, wsize_t max_wsize){
-
-  while(!sw.single_update_list.empty()){
-    SingleUpdateEntry sue = sw.single_update_list.front();
-    sw.single_update_list.pop_front();
-
-    assert(sue.min_wsize <= max_wsize);
-    uint32_t ** single_freq_range_matrix = emplace(single_freq_ranges,sue.rec);
-    single_freq_range_matrix[sue.min_wsize][max_wsize]++;
-  }
-
-  while(!sw.joint_update_list.empty()){
-    JointUpdateEntry jue = sw.joint_update_list.front();
-    sw.joint_update_list.pop_front();
-
-    assert(jue.min_wsize <= max_wsize);
-
-    uint32_t ** joint_freq_range_matrix=emplace(joint_freq_ranges,jue.rec_pair);
-    /*
-    JointFreqRangeMap::iterator result=joint_freq_ranges->find(jue.rec_pair);
-    if(result == joint_freq_ranges->end()){
-      joint_freq_range_matrix = new uint32_t*[maxWindowSize+1];
-      for(int i=1; i<=maxWindowSize; ++i)
-        joint_freq_range_matrix[i]=new uint32_t[maxWindowSize+1]();
-
-      (*joint_freq_ranges)[jue.rec_pair]= joint_freq_range_matrix;
-    }else
-      joint_freq_range_matrix=result->second;
-    */
-
-    joint_freq_range_matrix[jue.min_wsize][max_wsize]++;
-
-    /*
-    if(DEBUG>2){
-      fprintf(debugFile,"&&&&&&&&&&&&&&&& commit\n");
-      fprintf(debugFile,"(%d,%d)[%d..%d]++\n",jue.func_pair.first, jue.func_pair.second,jue.min_wsize,max_wsize);
-    }*/
-  }
-}
 
 extern "C" void record_function_exec(func_t fid, bb_t bbid){
 
@@ -173,7 +55,7 @@ extern "C" void record_function_exec(func_t fid, bb_t bbid){
 
 
   if(trace_list_size!=0 || sampled)
-    trace_list.front().partial_trace_list.push_front(rec);
+    trace_list.front().push_front(rec); //partial_trace_list.push_front(rec);
   else
     return;
 
@@ -186,41 +68,42 @@ extern "C" void record_function_exec(func_t fid, bb_t bbid){
 
   if(!contains_func[rec]){
     trace_list_size++;
-    trace_list.front().wsize++;
 
     if(trace_list_size > maxWindowSize){
-      commit_freq_updates(trace_list.back(),trace_list_size-1);
-      last_window_trace_list= &(trace_list.back().partial_trace_list);			
+      if(DEBUG>0){
+        fprintf(debugFile,"trace list overflowed: %d\n",trace_list_size);
+        print_trace(&trace_list);
+      }
+
+      list<Record> * last_window_trace_list= &trace_list.back().partial_trace_list;
 
       while(!last_window_trace_list->empty()){
         Record oldRec=last_window_trace_list->front();
         contains_func[oldRec]=false;
         last_window_trace_list->pop_front();
       }
-      trace_list_size-=trace_list.back().wsize;
-
+      trace_list_size-=trace_list.back().size();
       trace_list.pop_back();
     }
 
     if(trace_list_size>0){
-      sequential_update_affinity(trace_list.end());
+      sequential_update_affinity(rec,trace_list.end(),true);
       contains_func[rec]=true;
       rec_window_it[rec] = trace_list.begin();
       rec_trace_it[rec] = trace_list.begin()->partial_trace_list.begin();
     }
 
   }else{
-    trace_list.front().wsize++;
-    rec_window_it[rec]->wsize--;
-    wsize_t top_wsize = 0;
-    if(trace_list.begin()!=rec_window_it[rec]){
-      top_wsize = sequential_update_affinity(rec_window_it[rec]);
-    }
-    window_iter=rec_window_it[rec];
-    window_iter->partial_trace_list.erase(rec_trace_it[rec]);
+    sequential_update_affinity(rec,rec_window_it[rec],false);
+    window_iter = rec_window_it[rec];
+    window_iter->erase(rec_trace_it[rec]);
 
     if(window_iter->partial_trace_list.empty()){
-      commit_freq_updates(*window_iter,top_wsize);
+      list<SampledWindow>::iterator window_iter_prev = window_iter;
+      window_iter_prev--;
+      for(set<Record>::iterator it=window_iter->owners.begin(); it!=window_iter->owners.end(); ++it)
+        window_iter_prev->owners.insert(*it);
+      window_iter->owners.clear();
       trace_list.erase(window_iter);
     }
 
@@ -251,11 +134,7 @@ void print_optimal_layout(){
     }
   }
 
-  char affinityFilePath[80];
-  strcpy(affinityFilePath,"layout");
-  //strcat(affinityFilePath,(affEntryCmp==&affEntry1DCmp)?("1D"):("2D"));
-  strcat(affinityFilePath,version_str);
-  FILE *layoutFile = fopen(affinityFilePath,"w");  
+  FILE *layoutFile = fopen(get_versioned_filename("layout"),"w");  
 
   for(vector<Record>::iterator rec_it=layout.begin(), rec_end=layout.end(); rec_it!=rec_end; ++rec_it){
     fprintf(layoutFile, "(%hu,%hu)\n",rec_it->getFuncId(),rec_it->getBBId());
@@ -263,41 +142,6 @@ void print_optimal_layout(){
   fclose(layoutFile);
 }
 
-/*
-void print_optimal_layouts(){
-  Record * layout = new Record[totalFuncs];
-  int count=0;
-  for(int i=0; i< totalFuncs; ++i){
-    //printf("i is now %d\n",i);
-    if(disjointSet::sets[i]){
-      disjointSet * thisSet=disjointSet::sets[i];
-      for(deque<Record>::iterator it=disjointSet::sets[i]->elements.begin(), 
-          it_end=disjointSet::sets[i]->elements.end()
-          ; it!=it_end ; ++it){
-        //printf("this is *it:%d\n",*it);
-        layout[count++]=*it;
-        disjointSet::sets[*it]=0;
-      }
-      thisSet->elements.clear();
-      delete thisSet;
-    }
-  }
-
-
-  char affinityFilePath[80];
-  strcpy(affinityFilePath,"layout_");
-  //strcat(affinityFilePath,to_string(maxWindowSize).c_str());
-  strcat(affinityFilePath,version_str);
-
-  FILE *affinityFile = fopen(affinityFilePath,"w");  
-
-  for(Record i=0;i<totalFuncs;++i){
-    if(i%20==0)
-      fprintf(affinityFile, "\n");
-    fprintf(affinityFile, "%u ",layout[i]);
-  }
-  fclose(affinityFile);
-}*/
 
 /* The data allocation function (totalFuncs need to be set before entering this function) */
 void initialize_affinity_data(){
@@ -322,7 +166,7 @@ void aggregate_affinity(){
   strcpy(graphFilePath,"graph");
   strcat(graphFilePath,version_str);
 
-  
+
   graphFile=fopen(graphFilePath,"r");
   if(graphFile!=NULL){
     wsize_t file_mwsize;
@@ -335,7 +179,7 @@ void aggregate_affinity(){
     for(uint32_t i=0; i<sfreq_size; ++i){
       fscanf(graphFile,"(%hu,%hu):",&fid1,&bbid1);
       uint32_t * freq_array = emplace(single_freqs,Record(fid1,bbid1));
-      for(wsize_t wsize=1; wsize<=maxWindowSize; ++wsize){
+      for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
         fscanf(graphFile,"%u ",&sfreq);
         freq_array[wsize]+=sfreq;
       }
@@ -345,15 +189,7 @@ void aggregate_affinity(){
       fscanf(graphFile,"[(%hu,%hu),(%hu,%hu)]:",&fid1,&bbid1,&fid2,&bbid2);
       RecordPair rec_pair=RecordPair(Record(fid1,bbid1),Record(fid2,bbid2));
       uint32_t * freq_array = emplace(joint_freqs,rec_pair);
-      /*
-      uint32_t * freq_array=joint_freqs[entryToAdd];
-      if(freq_array==NULL){
-        freq_array= new uint32_t[maxWindowSize+1]();
-        (*joint_freqs)[entryToAdd]=freq_array;
-      }
-      */
-      //printf("(%hd,%hd)\n",u1,u2);
-      for(wsize_t wsize=1; wsize<=maxWindowSize; ++wsize){
+      for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
         fscanf(graphFile,"%u ",&jfreq);
         freq_array[wsize] +=jfreq;
       }
@@ -367,7 +203,7 @@ void aggregate_affinity(){
 
   for(siter=single_freqs.begin(); siter!=single_freqs.end(); ++siter){
     fprintf(graphFile,"(%hu,%hu):",siter->first.getFuncId(),siter->first.getBBId());
-    for(wsize_t wsize=1; wsize<=maxWindowSize;++wsize)
+    for(wsize_t wsize=0; wsize<maxWindowSize;++wsize)
       fprintf(graphFile,"%u ",siter->second[wsize]);
     fprintf(graphFile,"\n");
 
@@ -375,7 +211,7 @@ void aggregate_affinity(){
 
   for(jiter=joint_freqs.begin(); jiter!=joint_freqs.end(); ++jiter){
     fprintf(graphFile,"[(%hu,%hu),(%hu,%hu)]:",jiter->first.first.getFuncId(),jiter->first.first.getBBId(),jiter->first.second.getFuncId(),jiter->first.second.getBBId());
-    for(wsize_t wsize=1;wsize<=maxWindowSize;++wsize)
+    for(wsize_t wsize=0;wsize<maxWindowSize;++wsize)
       fprintf(graphFile,"%u ",jiter->second[wsize]);
     fprintf(graphFile,"\n");
   }
@@ -393,13 +229,16 @@ void find_affinity_groups(){
     if(iter->first.first < iter->first.second)
       all_affEntry_iters.push_back(iter->first);
   }
-  comparisonFile = fopen("compare.txt","w");
+
+  FILE *comparisonFile = fopen(get_versioned_filename("comparison"),"w");  
+
   sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),affEntryCmp);
   fclose(comparisonFile);
   comparisonFile=NULL;
 
-  orderFile = fopen("order.txt","w");
 
+
+  FILE *orderFile = fopen(get_versioned_filename("order"),"w");  
 
   for(func_t fid=0; fid<totalFuncs; ++fid)
     for(bb_t bbid=0; bbid<bb_count[fid]; ++bbid)
@@ -416,22 +255,12 @@ void find_affinity_groups(){
 
 /* Must be called at exit*/
 void affinityAtExitHandler(){
-  if(DEBUG>9)
-    fclose(traceFile);
-  wsize_t top_wsize=0;
-  while(!trace_list.empty()){
-    SampledWindow sw = trace_list.front();
-    top_wsize += sw.wsize;
-    commit_freq_updates(sw,top_wsize);
-    trace_list.pop_front();
-  }
   if(DEBUG>0)
     fclose(debugFile);
-  create_joint_freqs();
-  create_single_freqs();
+
   aggregate_affinity();
 
-  affEntryCmp=&affEntry2DCmp;
+  jointFreqCmp=&jointFreqCountCmp;
   find_affinity_groups();
   print_optimal_layout();
 
@@ -439,7 +268,7 @@ void affinityAtExitHandler(){
 
 
 void print_trace(list<SampledWindow> * tlist){
-  list<SampledWindow>::iterator window_iter=tlist->begin();
+  window_iter=tlist->begin();
 
   list<Record>::iterator trace_iter;
 
@@ -460,105 +289,43 @@ void print_trace(list<SampledWindow> * tlist){
 
 
 
+void sequential_update_affinity(Record rec, list<SampledWindow>::iterator grown_list_end, bool missed){
+  unsigned top_wsize=0;
 
-wsize_t sequential_update_affinity(list<SampledWindow>::iterator grown_list_end){
+  grown_list_iter = trace_list.begin();
 
-  wsize_t top_wsize=0;
-  wsize_t wsize;
-  top_window_iter = trace_list.begin();
-  func_iter = top_window_iter->partial_trace_list.begin();
+  while(grown_list_iter!= grown_list_end){
+    top_wsize+=grown_list_iter->size();
+    owner_iter = grown_list_iter->owners.begin();
+    owner_iter_end = grown_list_iter->owners.end();
 
-  Record rec= * func_iter;
+    while(owner_iter != owner_iter_end){
+      Record oldRec= *owner_iter;
 
-  while(top_window_iter!= grown_list_end){
-
-
-    func_iter = top_window_iter->partial_trace_list.begin();
-
-    partial_trace_list_end = top_window_iter->partial_trace_list.end();
-    while(func_iter != partial_trace_list_end){
-
-      Record oldRec= * func_iter;
       if(oldRec!=rec){
-        window_iter = top_window_iter;
-        wsize=top_wsize;
+        RecordPair rec_pair(oldRec,rec);
 
-        while(window_iter != grown_list_end){
-          wsize+=window_iter->wsize;
-          JointUpdateEntry jue(RecordPair(oldRec,rec),wsize);
-          window_iter->add_joint_update_entry(jue);
+        uint32_t * freq_array;
+        JointFreqMap::iterator  result= joint_freqs.find(trace_entry);
+        if(result==joint_freqs.end())
+          joint_freqs[trace_entry]= freq_array=new uint32_t[maxWindowSize]();
+        else
+          freq_array=result->second;
 
-          if(DEBUG>1){
-            fprintf(debugFile,"****************\n");
-            fprintf(debugFile,"update pair: (%d,%d),(%d,%d)[%d..]++\n",oldRec.getFuncId(),oldRec.getBBId(),rec.getFuncId(),rec.getBBId(),wsize);
-          }            
-          window_iter++;
-        }
+        freq_array[top_wsize] += (missed)?(10):(1);
       }
 
-      func_iter++;
+      owner_iter++;
     }
 
-    top_wsize += top_window_iter->wsize;
-    SingleUpdateEntry sue(rec,top_wsize);
-    top_window_iter->add_single_update_entry(sue);
+    grown_list_iter++;
 
-    if(DEBUG>1){
-      fprintf(debugFile,"################\n");
-      fprintf(debugFile,"update single: (%d,%d)[%d..]++\n",rec.getFuncId(),rec.getBBId(),top_wsize);
-    }
-
-    top_window_iter++;
-  }
-
-  return top_wsize;
+  } 
 
 } 
 
 
-
-/*
-   bool affEntry1DCmp(const RecordPair &left_pair,const RecordPair &right_pair){
-
-   int * jointFreq_left = (*joint_freqs)[left_pair];
-   int * jointFreq_right = (*joint_freqs)[right_pair];
-   if(jointFreq_left == NULL && jointFreq_right != NULL)
-   return false;
-   if(jointFreq_left != NULL && jointFreq_right == NULL)
-   return true;
-
-   if(jointFreq_left != NULL){
-   int left_pair_val, right_pair_val;
-
-   float rel_freq_threshold=2.0;
-   for(Record wsize=2;wsize<=maxWindowSize;++wsize){
-
-   if((rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.first][wsize]) && 
-   (rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.second][wsize]))
-   left_pair_val = 1;
-   else
-   left_pair_val = -1;
-
-   if((rel_freq_threshold*(jointFreq_right[wsize]) >= single_freqs[right_pair.first][wsize]) && 
-   (rel_freq_threshold*(jointFreq_right[wsize]) >= single_freqs[right_pair.second][wsize]))
-   right_pair_val = 1;
-   else
-   right_pair_val = -1;
-
-   if(left_pair_val != right_pair_val)
-   return (left_pair_val > right_pair_val);
-   }
-   }
-
-   if(left_pair.first != right_pair.first)
-   return (left_pair.first > right_pair.first);
-
-   return left_pair.second > right_pair.second;
-
-   }
-   */
-
-uint32_t * GetWithDef(JointFreqMap  &m, const RecordPair &key, uint32_t * defval) {
+uint32_t * GetWithDef(JointFreqMap&m, const RecordPair &key, uint32_t * defval) {
   JointFreqMap::const_iterator it = m.find( key );
   if ( it == m.end() ) {
     return defval;
@@ -567,73 +334,59 @@ uint32_t * GetWithDef(JointFreqMap  &m, const RecordPair &key, uint32_t * defval
     return it->second;
   }
 }
-bool affEntryFirstCmp(const RecordPair &left_pair, const RecordPair &right_pair){
 
+
+bool jointFreqSameFunctionsCmp(const RecordPair &left_pair, const RecordPair &right_pair){
   uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
   uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
 
-	for(short wsize=2;wsize<=maxWindowSize;++wsize){
-		if(jointFreq_left[wsize] > jointFreq_right[wsize])
-			return true;
-		if(jointFreq_left[wsize] < jointFreq_right[wsize])
-			return false;
+  for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
+    uint32_t left_val = jointFreq_left[wsize];
+    uint32_t right_val = jointFreq_right[wsize];
 
-	}
+    if(left_val > right_val)
+      return true;
 
-	if(left_pair.first != right_pair.first)
+    if( left_val < right_val)
+      return false;
+  }
+
+  if(left_pair.first != right_pair.first)
     return (right_pair.first < left_pair.first);
 
   return right_pair.second < left_pair.second;
-
 }
 
 
-
-bool affEntry2DCmp(const RecordPair &left_pair, const RecordPair &right_pair){
-	RecordPair left_pair_rev(left_pair.second,left_pair.first);
-	RecordPair right_pair_rev(right_pair.second,right_pair.first);
+bool jointFreqCountCmp(const RecordPair &left_pair, const RecordPair &right_pair){
+  RecordPair left_pair_rev(left_pair.second,left_pair.first);
+  RecordPair right_pair_rev(right_pair.second,right_pair.first);
 
   uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
   uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
-	uint32_t * jointFreq_left_rev = GetWithDef(joint_freqs, left_pair_rev, null_joint_freq);
+  uint32_t * jointFreq_left_rev = GetWithDef(joint_freqs, left_pair_rev, null_joint_freq);
   uint32_t * jointFreq_right_rev = GetWithDef(joint_freqs, right_pair_rev, null_joint_freq);
 
-	uint32_t left_val = jointFreq_left[maxWindowSize]+jointFreq_left_rev[maxWindowSize];
-	uint32_t right_val = jointFreq_right[maxWindowSize]+jointFreq_right_rev[maxWindowSize];
 
-	if(left_val > right_val)
-		return true;
-	
-	if(left_val < right_val)
-		return false;
+  bool left_pair_same_func = haveSameFunctions(left_pair);
+  bool right_pair_same_func = haveSameFunctions(right_pair);
 
-/*
-  int left_pair_val, right_pair_val;
+  uint32_t left_mult = (left_pair_same_func)?(2):(1);
+  uint32_t right_mult = (right_pair_same_func)?(2):(1);
 
-  short freqlevel;
-  float rel_freq_threshold;
-  for(freqlevel=0, rel_freq_threshold=1.0; freqlevel<maxFreqLevel; ++freqlevel, rel_freq_threshold+=5.0/maxFreqLevel){
-    for(short wsize=2;wsize<=maxWindowSize;++wsize){
 
-      if((rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.first][wsize]) && 
-          (rel_freq_threshold*(jointFreq_left[wsize]) >= single_freqs[left_pair.second][wsize]))
-        left_pair_val = 1;
-      else
-        left_pair_val = -1;
 
-      if((rel_freq_threshold*(jointFreq_right[wsize]) >= single_freqs[right_pair.first][wsize]) && 
-          (rel_freq_threshold*(jointFreq_right[wsize]) >= single_freqs[right_pair.second][wsize]))
-        right_pair_val = 1;
-      else
-        right_pair_val = -1;
+  for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
+    uint32_t left_val = jointFreq_left[wsize]+jointFreq_left_rev[wsize];
+    uint32_t right_val = jointFreq_right[wsize]+jointFreq_right_rev[wsize];
 
-      if(left_pair_val != right_pair_val)
-        return (left_pair_val > right_pair_val);
-    }
-    freqlevel++;
-    rel_freq_threshold+=5.0/maxFreqLevel;
+    if(left_val*left_mult > right_val*right_mult)
+      return true;
+
+    if( left_val*left_mult < right_val*right_mult)
+      return false;
   }
-	*/
+
 
   if(left_pair.first != right_pair.first)
     return (right_pair.first < left_pair.first);
@@ -643,54 +396,56 @@ bool affEntry2DCmp(const RecordPair &left_pair, const RecordPair &right_pair){
 }
 
 
-void disjointSet::mergeSets(const RecordPair &p){
+void disjointSet::mergeSetsSameFunctions(const RecordPair &p){
+  assert(haveSameFunctions(p));
 
-  if(disjointSet::sets[p.first]==disjointSet::sets[p.second])
-		return;
-		
-	disjointSet * merger,* mergee;
+  disjointSet * merger,* mergee;
 
-	RecordPair p_rev(p.second,p.first);
-	RecordPair pair_array[2]={p,p_rev};
-	vector<RecordPair> pair_vector(pair_array,pair_array+2);
-	sort(pair_vector.begin(),pair_vector.end(),affEntryFirstCmp);
+  RecordPair p_rev(p.second,p.first);
+  RecordPair pair_array[2]={p,p_rev};
+  vector<RecordPair> pair_vector(pair_array,pair_array+2);
+  sort(pair_vector.begin(),pair_vector.end(),jointFreqSameFunctionsCmp);
 
-	if(pair_vector[0]==p){
-		merger = disjointSet::sets[p.first];	
-		mergee = disjointSet::sets[p.second];	
-	}else{
-		merger = disjointSet::sets[p.second];	
-		mergee = disjointSet::sets[p.first];	
-	}
-	
-	for(deque<Record>::iterator it=mergee->elements.begin(); it!=mergee->elements.end(); ++it){
-		merger->elements.push_back(*it);
-		disjointSet::sets[*it]=merger;
+  if(pair_vector[0]==p){
+    merger = disjointSet::sets[p.first];	
+    mergee = disjointSet::sets[p.second];	
+  }else{
+    merger = disjointSet::sets[p.second];	
+    mergee = disjointSet::sets[p.first];	
   }
 
-	mergee->elements.clear();
-  	delete mergee;
+  for(deque<Record>::iterator it=mergee->elements.begin(); it!=mergee->elements.end(); ++it){
+    merger->elements.push_back(*it);
+    disjointSet::sets[*it]=merger;
+  }
+
+  mergee->elements.clear();
+  delete mergee;
 
 }
 
-void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
+void disjointSet::mergeSetsDifferentFunctions(const RecordPair &p){
 
-  disjointSet * merger = (set1->size()>=set2->size())?(set1):(set2);
+  assert(!haveSameFunctions(p));
 
-  disjointSet * mergee = (set1->size()<set2->size())?(set1):(set2);
+  disjointSet * first_set, * second_set;
+  first_set = sets[p.first];
+  second_set = sets[p.second];
+
+  disjointSet * merger = (first_set->size() >= second_set->size())?(first_set):(second_set);
+  disjointSet * mergee = (merger == first_set) ? (second_set) : (first_set);
 
 
   RecordPair frontMerger_backMergee(merger->elements.front(), mergee->elements.back());
   RecordPair backMerger_backMergee(merger->elements.back(), mergee->elements.back());
   RecordPair backMerger_frontMergee(merger->elements.back(), mergee->elements.front());
   RecordPair frontMerger_frontMergee(merger->elements.front(), mergee->elements.front());
-  RecordPair conAffEntriesArray[4]={frontMerger_frontMergee, frontMerger_backMergee, backMerger_frontMergee, backMerger_backMergee};
-  vector<RecordPair> conAffEntries(conAffEntriesArray,conAffEntriesArray+4);
-  sort(conAffEntries.begin(), conAffEntries.end(), affEntry2DCmp);
 
-  //assert(affEntryCmp(conAffEntries[0],conAffEntries[1]) || (conAffEntries[0]==conAffEntries[1]));
-  //assert(affEntryCmp(conAffEntries[1],conAffEntries[2]) || (conAffEntries[1]==conAffEntries[2]));
-  //assert(affEntryCmp(conAffEntries[2],conAffEntries[3]) || (conAffEntries[2]==conAffEntries[3]));
+  RecordPair conAffEntriesArray[4]={frontMerger_frontMergee, frontMerger_backMergee, backMerger_frontMergee, backMerger_backMergee};
+
+  vector<RecordPair> conAffEntries(conAffEntriesArray,conAffEntriesArray+4);
+
+  sort(conAffEntries.begin(), conAffEntries.end(), jointFreqCountCmp);
 
   bool con_mergee_front = (conAffEntries[0] == backMerger_frontMergee) || (conAffEntries[0] == frontMerger_frontMergee);
   bool con_merger_front = (conAffEntries[0] == frontMerger_frontMergee) || (conAffEntries[0] == frontMerger_backMergee);
@@ -725,10 +480,6 @@ static void save_affinity_environment_variables(void) {
     DEBUG = atoi(DebugEnvVar);
   }
 
-  if ((MemoryLimitEnvVar = getenv("MEMORY_LIMIT")) != NULL) {
-    memoryLimit = atoi(MemoryLimitEnvVar);
-  }
-
   if ((SampleRateEnvVar = getenv("SAMPLE_RATE")) != NULL) {
     sampleRateLog = atoi(SampleRateEnvVar);
     sampleSize= RAND_MAX >> sampleRateLog;
@@ -736,7 +487,7 @@ static void save_affinity_environment_variables(void) {
   }
 
   if((MaxWindowSizeEnvVar = getenv("MAX_WINDOW_SIZE")) != NULL){
-    maxWindowSize = atoi(MaxWindowSizeEnvVar);
+    maxWindowSize = atoi(MaxWindowSizeEnvVar)-1;
   }
 
   if((MaxFreqLevelEnvVar = getenv("MAX_FREQ_LEVEL")) != NULL){

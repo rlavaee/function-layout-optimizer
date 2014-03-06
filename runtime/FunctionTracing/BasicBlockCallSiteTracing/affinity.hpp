@@ -8,6 +8,8 @@
 #include <functional>
 #include <unordered_map>
 #include <stdint.h>
+
+#define MAX_FILE_NAME 30
 using namespace std;
 
 typedef uint16_t wsize_t;
@@ -20,103 +22,62 @@ class Record{
   func_t fid;
   bb_t bbid;
   public:
-    Record(){};
-    Record(func_t a, bb_t b): fid(a),bbid(b) {};
-    Record(const Record &rec): fid(rec.getFuncId()), bbid(rec.getBBId()){};
+  Record(){};
+  Record(func_t a, bb_t b): fid(a),bbid(b) {};
+  Record(const Record &rec): fid(rec.getFuncId()), bbid(rec.getBBId()){};
 
-    func_t getFuncId() const{
-      return fid;
-    }
+  func_t getFuncId() const{
+    return fid;
+  }
 
-    bb_t getBBId() const{
-      return bbid;
-    }
+  bb_t getBBId() const{
+    return bbid;
+  }
 
-    bool operator < (const Record &rhs) const{
-      if(getFuncId() < rhs.getFuncId())
-        return true;
-      if(getFuncId() > rhs.getFuncId())
-        return false;
-      if(getBBId() < rhs.getBBId())
-        return true;
+  bool operator < (const Record &rhs) const{
+    if(getFuncId() < rhs.getFuncId())
+      return true;
+    if(getFuncId() > rhs.getFuncId())
       return false;
-    }
+    if(getBBId() < rhs.getBBId())
+      return true;
+    return false;
+  }
 
-    bool operator == (const Record &rhs) const{
-      return getFuncId()==rhs.getFuncId() && getBBId()==rhs.getBBId();
-    }
+  bool operator == (const Record &rhs) const{
+    return getFuncId()==rhs.getFuncId() && getBBId()==rhs.getBBId();
+  }
 
-    bool operator != (const Record &rhs) const {return !(*this==rhs);}
+  bool operator != (const Record &rhs) const {return !(*this==rhs);}
 
 };
 
 typedef pair<Record,Record> RecordPair;
 
+bool haveSameFunctions(const RecordPair &rec_pair){
+  return rec_pair.first.getFuncId() == rec_pair.second.getFuncId();
+}
+
 struct RecordHash{
   size_t operator()(const Record& rec) const{
-    return hash<uint32_t>()( ((uint32_t)rec.getFuncId() << 16) + rec.getBBId());
+    return hash<uint32_t>()( ((uint32_t)rec.getFuncId() *totalFuncs) + rec.getBBId());
   }
 };
-
-/*
-   struct affEntry{
-   func_t first,second;
-   affEntry();
-   affEntry(func_t,func_t);
-   affEntry(const affEntry&);
-   affEntry& operator= (const affEntry&);
-   bool operator== (const affEntry&) const;
-   };
-   */
-
 
 RecordPair unordered_RecordPair(Record s1,Record s2){
   return (s1<s2)?(RecordPair(s1,s2)):(RecordPair(s2,s1));
 }
 
-struct RecordPair_eq{
-  bool operator()(const RecordPair &s1, const RecordPair &s2) const {
-    if ((s1.first == s2.first) && (s1.second == s2.second))
-      return true;
-    if ((s1.second == s2.first) && (s1.first == s2.second))
-      return true;
-    return false;
-  }
-};
-
 
 struct RecordPair_hash{
-  size_t operator()(const RecordPair& s) const{
-    Record smaller=(s.first<s.second)?(s.first):(s.second);
-    Record bigger=(s.first<s.second)?(s.second):(s.first);
-    return hash<uint32_t>()(totalFuncs*RecordHash()(smaller) + RecordHash()(bigger));
+  size_t operator()(const RecordPair& rec_pair) const{
+    return hash<uint32_t>()( ((RecordHash()(rec_pair.first)) << 16) + RecordHash()(rec_pair.second));
   }
 };
 
-/*
-   struct RecordPair_eq{
-   bool operator()(const RecordPair &s1, const RecordPair &s2) const{
-   return (s1.first == s2.first) && (s1.second == s2.second);
-   }
-   };
-   */
 
-typedef std::unordered_map <const RecordPair, uint32_t *, RecordPair_hash, RecordPair_eq > JointFreqMap;
-typedef std::unordered_map <const RecordPair, uint32_t **, RecordPair_hash, RecordPair_eq > JointFreqRangeMap;
+typedef std::unordered_map <const RecordPair, uint32_t *, RecordPair_hash > JointFreqMap;
 typedef std::unordered_map <const Record, uint32_t *, RecordHash> SingleFreqMap;
-typedef std::unordered_map <const Record, uint32_t **, RecordHash> SingleFreqRangeMap;
-
-struct SingleUpdateEntry{
-  Record rec;
-  wsize_t min_wsize;
-  SingleUpdateEntry(const Record &a, wsize_t b): rec(a), min_wsize(b){}
-};
-
-struct JointUpdateEntry{
-  RecordPair rec_pair;
-  wsize_t min_wsize;
-  JointUpdateEntry(const RecordPair &a, wsize_t b):rec_pair(a), min_wsize(b){}
-};
 
 
 struct disjointSet {
@@ -124,10 +85,13 @@ struct disjointSet {
   deque<Record> elements;
   size_t size(){ return elements.size();}
   static void mergeSets(disjointSet *, disjointSet *);
-	static void mergeSets(const RecordPair &p);
-  static void mergeSets(Record rec1, Record rec2){
-    if(sets[rec1]!=sets[rec2])
-      mergeSets(sets[rec1],sets[rec2]);
+  static void mergeSets(const RecordPair &p){
+    if(sets[p.first]!=sets[p.second]){
+      if(p.haveSameFunctions())
+        mergeSetsSameFunctions(p);
+      else
+        mergeSetsDifferentFunctions(p);
+    }
   }
 
   static void init_new_set(const Record rec){
@@ -136,25 +100,30 @@ struct disjointSet {
   }
 
 };
-  
-std::unordered_map<const Record, disjointSet *,RecordHash> disjointSet::sets = std::unordered_map<const Record, disjointSet *,RecordHash>();
 
+std::unordered_map<const Record, disjointSet *,RecordHash> disjointSet::sets = std::unordered_map<const Record, disjointSet *,RecordHash>();
 
 struct SampledWindow{
   wsize_t wsize;
   list<Record> partial_trace_list;
-  list<SingleUpdateEntry> single_update_list;
-  list<JointUpdateEntry> joint_update_list;
+  set<Record> owners;
 
-  SampledWindow():wsize(0){}
+  SampledWindow(const SampledWindow&);
+  SampledWindow();
+  ~SampledWindow();
+  void erase(list<Record>::iterator trace_iter){
+    partial_trace_list.erase(trace_iter);
+    wsize--;
+  };
 
-  void add_single_update_entry(SingleUpdateEntry &sue){
-    single_update_list.push_back(sue);
+  void push_front(Record rec){
+    partial_trace_list.push_front(rec);
+    wsize++;
   }
 
-  void add_joint_update_entry(JointUpdateEntry &jue){
-    joint_update_list.push_back(jue);
-  }
+  size_t size(){
+    return wsize;
+  } 
 };
 
 
@@ -165,8 +134,14 @@ wsize_t sequential_update_affinity(list<SampledWindow>::iterator);
 void affinityAtExitHandler();
 
 
-bool (*affEntryCmp)(const RecordPair& pair_left, const RecordPair& pair_right);
-//bool affEntry1DCmp(const RecordPair& pair_left, const RecordPair& pair_right);
-bool affEntry2DCmp(const RecordPair& pair_left, const RecordPair& pair_right);
-bool affEntryFirstCmp(const RecordPair& pair_left, const RecordPair& pair_right);
+bool jointFreqSameFunctionsCmp(const RecordPair& pair_left, const RecordPair& pair_right);
+bool jointFreqCountCmp(const RecordPair& pair_left, const RecordPair& pair_right);
+
+char * get_versioned_filename(const char * basename){
+  char * versioned_name = new char [MAX_FILE_NAME];
+  strcpy(versioned_name,basename);
+  strcat(versioned_name,version_str);
+  return versioned_name;
+}
+
 #endif /* AFFINITY_HPP */
