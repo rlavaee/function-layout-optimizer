@@ -8,9 +8,13 @@
 #include <functional>
 #include <unordered_map>
 #include <stdint.h>
+#include <set>
+#include <cstring>
 
 #define MAX_FILE_NAME 30
 using namespace std;
+
+const char * version_str = ".bbabc";
 
 typedef uint16_t wsize_t;
 typedef uint16_t func_t;
@@ -84,10 +88,11 @@ struct disjointSet {
   static std::unordered_map<const Record, disjointSet *,RecordHash> sets;
   deque<Record> elements;
   size_t size(){ return elements.size();}
-  static void mergeSets(disjointSet *, disjointSet *);
+  static void mergeSetsSameFunctions(const RecordPair &p);
+  static void mergeSetsDifferentFunctions(const RecordPair &p);
   static void mergeSets(const RecordPair &p){
     if(sets[p.first]!=sets[p.second]){
-      if(p.haveSameFunctions())
+      if(haveSameFunctions(p))
         mergeSetsSameFunctions(p);
       else
         mergeSetsDifferentFunctions(p);
@@ -130,7 +135,7 @@ struct SampledWindow{
 
 void print_trace(list<SampledWindow> *);
 void initialize_affinity_data();
-wsize_t sequential_update_affinity(list<SampledWindow>::iterator);
+wsize_t sequential_update_affinity(const Record &rec, list<SampledWindow>::iterator, bool missed);
 void affinityAtExitHandler();
 
 

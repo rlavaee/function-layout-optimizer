@@ -27,19 +27,34 @@ list<SampledWindow> trace_list;
 
 wsize_t trace_list_size;
 
-list<SampledWindow>::iterator window_iter,window_iter_prev, grown_list_iter;
-list<SampledWindow>::iterator top_window_iter;
-list<Record>::iterator func_iter;
-list<Record>::iterator partial_trace_list_end;
+list<SampledWindow>::iterator window_iter,window_iter_prev, grown_list_iter,top_window_iter;
+list<Record>::iterator func_iter, partial_trace_list_end;
 list<Record> * last_window_trace_list;
 
+set<Record>::iterator owner_iter, owner_iter_end;
 
 
 FILE * graphFile, * debugFile;
 
 uint32_t * null_joint_freq = new uint32_t[maxWindowSize]();
-const char * version_str=".bbabc";
 
+
+uint32_t * emplace(JointFreqMap &jfm, const RecordPair &rec_pair){
+	JointFreqMap::iterator result = jfm.find(rec_pair);
+	if(result == jfm.end())
+		return (jfm[rec_pair]= new uint32_t[maxWindowSize]());
+	else
+		return result->second;
+}
+
+
+uint32_t * emplace(SingleFreqMap &sfm, const Record &rec){
+	SingleFreqMap::iterator result = sfm.find(rec);
+	if(result == sfm.end())
+		return (sfm[rec]= new uint32_t[maxWindowSize]());
+	else
+		return result->second;
+}
 
 extern "C" void record_function_exec(func_t fid, bb_t bbid){
 
@@ -232,7 +247,7 @@ void find_affinity_groups(){
 
   FILE *comparisonFile = fopen(get_versioned_filename("comparison"),"w");  
 
-  sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),affEntryCmp);
+  sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),jointFreqCountCmp);
   fclose(comparisonFile);
   comparisonFile=NULL;
 
@@ -259,8 +274,6 @@ void affinityAtExitHandler(){
     fclose(debugFile);
 
   aggregate_affinity();
-
-  jointFreqCmp=&jointFreqCountCmp;
   find_affinity_groups();
   print_optimal_layout();
 
@@ -288,7 +301,6 @@ void print_trace(list<SampledWindow> * tlist){
 }
 
 
-
 void sequential_update_affinity(Record rec, list<SampledWindow>::iterator grown_list_end, bool missed){
   unsigned top_wsize=0;
 
@@ -304,15 +316,7 @@ void sequential_update_affinity(Record rec, list<SampledWindow>::iterator grown_
 
       if(oldRec!=rec){
         RecordPair rec_pair(oldRec,rec);
-
-        uint32_t * freq_array;
-        JointFreqMap::iterator  result= joint_freqs.find(trace_entry);
-        if(result==joint_freqs.end())
-          joint_freqs[trace_entry]= freq_array=new uint32_t[maxWindowSize]();
-        else
-          freq_array=result->second;
-
-        freq_array[top_wsize] += (missed)?(10):(1);
+        emplace(joint_freqs,rec_pair)[top_wsize] += (missed)?(10):(1);
       }
 
       owner_iter++;
@@ -474,7 +478,7 @@ void disjointSet::mergeSetsDifferentFunctions(const RecordPair &p){
 }
 
 static void save_affinity_environment_variables(void) {
-  const char *SampleRateEnvVar, *MaxWindowSizeEnvVar, *MaxFreqLevelEnvVar, *MemoryLimitEnvVar, *DebugEnvVar;
+  const char *SampleRateEnvVar, *MaxWindowSizeEnvVar, *MaxFreqLevelEnvVar,  *DebugEnvVar;
 
   if((DebugEnvVar = getenv("DEBUG")) !=NULL){
     DEBUG = atoi(DebugEnvVar);
