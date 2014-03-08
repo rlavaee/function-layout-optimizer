@@ -73,7 +73,7 @@ extern "C" void record_function_exec(func_t fid, bb_t bbid){
   }
 
 	if(last_bbs[fid]!=bbid){
-		fall_through_counts[fid][bb_pair_t(last_bbs[fid],bbid)]++
+		fall_through_counts[fid][bb_pair_t(last_bbs[fid],bbid)]++;
 		last_bbs[fid]=bbid;
 	}
 
@@ -258,44 +258,51 @@ void aggregate_affinity(){
   fclose(graphFile);
 }
 
+func_t cur_fid;
+
 /* This function builds the affinity groups based on the affinity table 
    and prints out the results */
 void find_affinity_groups(){
 	
-	for(func_t fid=0; fid < totalFuncs; ++fid){
-		vector<bb_pair_t> all_bb_pairs;
-		for(FallThroughMap::iterator iter=fall_through_counts[fid].begin(); iter!=fall_through_counts[fid].end(); ++iter){
-			all_bb_pairs.push_back(iter->first);
-		}
-	sort(all_bb_pairs.begin(), all_bb_pairs.end(), fall_through_cmp);
-
+/*
   vector<RecordPair> all_affEntry_iters;
   for(JointFreqMap::iterator iter=joint_freqs.begin(); iter!=joint_freqs.end(); ++iter){
     if(iter->first.first < iter->first.second)
       all_affEntry_iters.push_back(iter->first);
   }
 
-/*
   FILE *comparisonFile = fopen(get_versioned_filename("comparison"),"w");  
 
   sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),jointFreqCountCmp);
   fclose(comparisonFile);
   comparisonFile=NULL;
-*/
 
-
-  FILE *orderFile = fopen(get_versioned_filename("order"),"w");  
-
-  for(func_t fid=0; fid<totalFuncs; ++fid)
-    for(bb_t bbid=0; bbid<bb_count[fid]; ++bbid)
-      disjointSet::init_new_set(Record(fid,bbid));
-
-  //for(vector<RecordPair>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
-	for(vector<bb_pair_t>::iter=all_bb_pairs.begin(); iter!=all_bb_pairs.end(); ++iter){
+  for(vector<RecordPair>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
     fprintf(orderFile,"[(%hu,%hu),(%hu,%hu)]\n",iter->first.getFuncId(),iter->first.getBBId(),iter->second.getFuncId(),iter->second.getBBId());
     disjointSet::mergeSets(*iter);
   } 
+*/
+  FILE *orderFile = fopen(get_versioned_filename("order"),"w");  
 
+  for(func_t fid=0; fid < totalFuncs; ++fid){
+    cur_fid = fid;
+    vector<bb_pair_t> all_bb_pairs;
+    for(FallThroughMap::iterator iter=fall_through_counts[fid].begin(); iter!=fall_through_counts[fid].end(); ++iter)
+      all_bb_pairs.push_back(iter->first);
+
+    sort(all_bb_pairs.begin(), all_bb_pairs.end(), fall_through_cmp);
+
+  
+
+    for(bb_t bbid=0; bbid<bb_count[fid]; ++bbid)
+      disjointSet::init_new_set(Record(fid,bbid));
+
+
+    for(vector<bb_pair_t>::iterator iter=all_bb_pairs.begin(); iter!=all_bb_pairs.end(); ++iter){
+      fprintf(orderFile,"[(%hu,%hu),(%hu,%hu)]\n",fid,iter->first,fid,iter->second);
+      disjointSet::mergeBasicBlocksSameFunction(fid,*iter);
+    }
+  }
   fclose(orderFile);
 
 }
@@ -373,7 +380,7 @@ uint32_t * GetWithDef(JointFreqMap&m, const RecordPair &key, uint32_t * defval) 
   }
 }
 
-
+/*
 bool jointFreqSameFunctionsCmp(const RecordPair &left_pair, const RecordPair &right_pair){
   uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
   uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
@@ -438,7 +445,7 @@ bool jointFreqCountCmp(const RecordPair &left_pair, const RecordPair &right_pair
 	if (!left_pair_same_func && right_pair_same_func)
 		return false;
 
-/*	
+	
 	if(left_pair_same_func && right_pair_same_func){
 		bb_t left_bb_diff = abs(left_pair.second.getBBId()-left_pair.second.getBBId());
 		bb_t right_bb_diff = abs(right_pair.second.getBBId()-right_pair.second.getBBId());
@@ -447,7 +454,7 @@ bool jointFreqCountCmp(const RecordPair &left_pair, const RecordPair &right_pair
 		if(left_bb_diff > right_bb_diff)
 			return false;
 	}
-*/
+
 
   if(left_pair.first != right_pair.first)
     return (right_pair.first < left_pair.first);
@@ -455,6 +462,7 @@ bool jointFreqCountCmp(const RecordPair &left_pair, const RecordPair &right_pair
   return right_pair.second < left_pair.second;
 
 }
+*/
 
 bool fall_through_cmp (const bb_pair_t &left_pair, const bb_pair_t &right_pair){
 	return (fall_through_counts[cur_fid][left_pair] > fall_through_counts[cur_fid][left_pair]);
@@ -467,7 +475,7 @@ void disjointSet::mergeBasicBlocksSameFunction(func_t fid, const bb_pair_t &bb_p
 	Record left_rec(fid,bb_pair.first);
 	Record right_rec(fid,bb_pair.second);
 
-	if(disjointSet::is_connected_to_right(left_rec) || disjointSet::is_connected_to_left(right_rec))
+	if(is_connected_to_right(left_rec) || is_connected_to_left(right_rec))
 		return;
 	else
 		mergeSets(left_rec,right_rec);

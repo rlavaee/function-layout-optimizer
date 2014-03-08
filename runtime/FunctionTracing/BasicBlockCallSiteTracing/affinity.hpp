@@ -86,7 +86,7 @@ struct bb_pair_hash{
   size_t operator()(const bb_pair_t &bbp) const{
     return hash<uint32_t>()( ((uint32_t)bbp.first << 16) + bbp.second);
   }
-}
+};
 
 typedef std::unordered_map <const RecordPair, uint32_t *, RecordPair_hash > JointFreqMap;
 typedef std::unordered_map <const Record, uint32_t *, RecordHash> SingleFreqMap;
@@ -97,23 +97,24 @@ struct disjointSet {
   static std::unordered_map<const Record, disjointSet *,RecordHash> sets;
   deque<Record> elements;
   size_t size(){ return elements.size();}
-  static void mergeSetsSameFunctions(const RecordPair &p);
-  static void mergeSetsDifferentFunctions(const RecordPair &p);
-	static void mergeSets(const RecordPair &p){
-	}
-  static void mergeSets(const RecordPair &p){
-    if(sets[p.first]!=sets[p.second]){
-      if(haveSameFunctions(p))
-        mergeSetsSameFunctions(p);
-      else
-        mergeSetsDifferentFunctions(p);
-    }
-  }
 
-  static void init_new_set(const Record rec){
+  static void init_new_set(const Record &rec){
     sets[rec]= new disjointSet();
     sets[rec]->elements.push_back(rec);
   }
+
+  static bool is_connected_to_right(const Record &rec){
+    //assert(sets[rec] && "Has not been initialized!\n");
+    return sets[rec]->elements.back()!=rec;
+  }
+
+  static bool is_connected_to_left(const Record &rec){
+    //assert(sets[rec] && "Has not been initialized!\n");
+    return sets[rec]->elements.front()!=rec;
+  }
+
+  static void mergeBasicBlocksSameFunction(func_t fid, const bb_pair_t &bb_pair);
+  static void mergeSets(Record const &left_rec, Record const &right_rec);
 
 };
 
@@ -151,6 +152,8 @@ void affinityAtExitHandler();
 
 bool jointFreqSameFunctionsCmp(const RecordPair& pair_left, const RecordPair& pair_right);
 bool jointFreqCountCmp(const RecordPair& pair_left, const RecordPair& pair_right);
+
+bool fall_through_cmp (const bb_pair_t &left_pair, const bb_pair_t &right_pair);
 
 char * get_versioned_filename(const char * basename){
   char * versioned_name = new char [MAX_FILE_NAME];
