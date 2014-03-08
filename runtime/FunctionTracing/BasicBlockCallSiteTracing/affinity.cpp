@@ -15,6 +15,7 @@ uint32_t sampleMask;
 short maxFreqLevel;
 
 JointFreqMap joint_freqs;
+FallThroughMap * fall_through_counts;
 
 //TODO Consider adding single freqs later on
 SingleFreqMap single_freqs;
@@ -22,6 +23,8 @@ SingleFreqMap single_freqs;
 std::unordered_map<const Record,bool,RecordHash> contains_func;
 std::unordered_map<const Record,list<Record>::iterator,RecordHash> rec_trace_it;
 std::unordered_map<const Record,list<SampledWindow>::iterator,RecordHash> rec_window_it;
+
+bb_t * last_bbs;
 
 list<SampledWindow> trace_list;
 
@@ -64,14 +67,19 @@ extern "C" void record_function_exec(func_t fid, bb_t bbid){
   bool sampled=false;
   if((r & sampleMask)==0){
     SampledWindow sw;
+		sw.owners.insert(rec);
     trace_list.push_front(sw);
     sampled=true;
   }
 
+	if(last_bbs[fid]!=bbid){
+		fall_through_counts[fid][bb_pair_t(last_bbs[fid],bbid)]++
+		last_bbs[fid]=bbid;
+	}
 
-  if(trace_list_size!=0 || sampled)
+  if(trace_list_size!=0 || sampled){
     trace_list.front().push_front(rec); //partial_trace_list.push_front(rec);
-  else
+  }else
     return;
 
 
@@ -176,6 +184,21 @@ void aggregate_affinity(){
   JointFreqMap::iterator jiter;
   SingleFreqMap::iterator siter;
 
+	for(jiter=joint_freqs.begin(); jiter!=joint_freqs.end(); ++jiter){
+    uint32_t * freq_array= jiter->second;	  
+    for(wsize_t wsize=1;wsize<maxWindowSize;++wsize){
+      freq_array[wsize]+=freq_array[wsize-1];
+    }
+  }
+
+	for(siter=single_freqs.begin(); siter!=single_freqs.end(); ++siter){
+    uint32_t * freq_array= siter->second;	  
+    for(wsize_t wsize=1;wsize<maxWindowSize;++wsize){
+      freq_array[wsize]+=freq_array[wsize-1];
+    }
+  }
+
+
 
   char * graphFilePath=(char*) malloc(strlen("graph")+strlen(version_str)+1);
   strcpy(graphFilePath,"graph");
@@ -238,6 +261,13 @@ void aggregate_affinity(){
 /* This function builds the affinity groups based on the affinity table 
    and prints out the results */
 void find_affinity_groups(){
+	
+	for(func_t fid=0; fid < totalFuncs; ++fid){
+		vector<bb_pair_t> all_bb_pairs;
+		for(FallThroughMap::iterator iter=fall_through_counts[fid].begin(); iter!=fall_through_counts[fid].end(); ++iter){
+			all_bb_pairs.push_back(iter->first);
+		}
+	sort(all_bb_pairs.begin(), all_bb_pairs.end(), fall_through_cmp);
 
   vector<RecordPair> all_affEntry_iters;
   for(JointFreqMap::iterator iter=joint_freqs.begin(); iter!=joint_freqs.end(); ++iter){
@@ -245,12 +275,13 @@ void find_affinity_groups(){
       all_affEntry_iters.push_back(iter->first);
   }
 
+/*
   FILE *comparisonFile = fopen(get_versioned_filename("comparison"),"w");  
 
   sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),jointFreqCountCmp);
   fclose(comparisonFile);
   comparisonFile=NULL;
-
+*/
 
 
   FILE *orderFile = fopen(get_versioned_filename("order"),"w");  
@@ -259,7 +290,8 @@ void find_affinity_groups(){
     for(bb_t bbid=0; bbid<bb_count[fid]; ++bbid)
       disjointSet::init_new_set(Record(fid,bbid));
 
-  for(vector<RecordPair>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
+  //for(vector<RecordPair>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
+	for(vector<bb_pair_t>::iter=all_bb_pairs.begin(); iter!=all_bb_pairs.end(); ++iter){
     fprintf(orderFile,"[(%hu,%hu),(%hu,%hu)]\n",iter->first.getFuncId(),iter->first.getBBId(),iter->second.getFuncId(),iter->second.getBBId());
     disjointSet::mergeSets(*iter);
   } 
@@ -288,8 +320,10 @@ void print_trace(list<SampledWindow> * tlist){
   fprintf(debugFile,"---------------------------------------------\n");
   while(window_iter!=tlist->end()){
     trace_iter =  window_iter->partial_trace_list.begin();
-    fprintf(debugFile,"size: %d\n",window_iter->wsize);
-
+		fprintf(debugFile,"owners:\t");
+		for(set<Record>::iterator owner_it=window_iter->owners.begin(); owner_it!=window_iter->owners.end(); ++owner_it)
+			fprintf(debugFile,"(%hu,%hu) ",owner_it->getFuncId(),owner_it->getBBId());
+		fprintf(debugFile,"\n");
 
     while(trace_iter!=window_iter->partial_trace_list.end()){
       fprintf(debugFile,"(%hu,%hu) ",trace_iter->getFuncId(),trace_iter->getBBId());
@@ -301,7 +335,7 @@ void print_trace(list<SampledWindow> * tlist){
 }
 
 
-void sequential_update_affinity(Record rec, list<SampledWindow>::iterator grown_list_end, bool missed){
+void sequential_update_affinity(const Record &rec, list<SampledWindow>::iterator grown_list_end, bool missed){
   unsigned top_wsize=0;
 
   grown_list_iter = trace_list.begin();
@@ -316,7 +350,7 @@ void sequential_update_affinity(Record rec, list<SampledWindow>::iterator grown_
 
       if(oldRec!=rec){
         RecordPair rec_pair(oldRec,rec);
-        emplace(joint_freqs,rec_pair)[top_wsize] += (missed)?(10):(1);
+        emplace(joint_freqs,rec_pair)[top_wsize-2] += (missed)?(10):(1);
       }
 
       owner_iter++;
@@ -363,6 +397,15 @@ bool jointFreqSameFunctionsCmp(const RecordPair &left_pair, const RecordPair &ri
 
 
 bool jointFreqCountCmp(const RecordPair &left_pair, const RecordPair &right_pair){
+  bool left_pair_same_func = haveSameFunctions(left_pair);
+  bool right_pair_same_func = haveSameFunctions(right_pair);
+
+		if (left_pair_same_func && !right_pair_same_func)
+			return true;
+	
+		if (!left_pair_same_func && right_pair_same_func)
+			return false;
+
   RecordPair left_pair_rev(left_pair.second,left_pair.first);
   RecordPair right_pair_rev(right_pair.second,right_pair.first);
 
@@ -372,8 +415,6 @@ bool jointFreqCountCmp(const RecordPair &left_pair, const RecordPair &right_pair
   uint32_t * jointFreq_right_rev = GetWithDef(joint_freqs, right_pair_rev, null_joint_freq);
 
 
-  bool left_pair_same_func = haveSameFunctions(left_pair);
-  bool right_pair_same_func = haveSameFunctions(right_pair);
 
   uint32_t left_mult = (left_pair_same_func)?(2):(1);
   uint32_t right_mult = (right_pair_same_func)?(2):(1);
@@ -391,6 +432,22 @@ bool jointFreqCountCmp(const RecordPair &left_pair, const RecordPair &right_pair
       return false;
   }
 
+	if (left_pair_same_func && !right_pair_same_func)
+		return true;
+	
+	if (!left_pair_same_func && right_pair_same_func)
+		return false;
+
+/*	
+	if(left_pair_same_func && right_pair_same_func){
+		bb_t left_bb_diff = abs(left_pair.second.getBBId()-left_pair.second.getBBId());
+		bb_t right_bb_diff = abs(right_pair.second.getBBId()-right_pair.second.getBBId());
+		if(left_bb_diff < right_bb_diff)
+			return true;
+		if(left_bb_diff > right_bb_diff)
+			return false;
+	}
+*/
 
   if(left_pair.first != right_pair.first)
     return (right_pair.first < left_pair.first);
@@ -399,35 +456,39 @@ bool jointFreqCountCmp(const RecordPair &left_pair, const RecordPair &right_pair
 
 }
 
-
-void disjointSet::mergeSetsSameFunctions(const RecordPair &p){
-  assert(haveSameFunctions(p));
-
-  disjointSet * merger,* mergee;
-
-  RecordPair p_rev(p.second,p.first);
-  RecordPair pair_array[2]={p,p_rev};
-  vector<RecordPair> pair_vector(pair_array,pair_array+2);
-  sort(pair_vector.begin(),pair_vector.end(),jointFreqSameFunctionsCmp);
-
-  if(pair_vector[0]==p){
-    merger = disjointSet::sets[p.first];	
-    mergee = disjointSet::sets[p.second];	
-  }else{
-    merger = disjointSet::sets[p.second];	
-    mergee = disjointSet::sets[p.first];	
-  }
-
-  for(deque<Record>::iterator it=mergee->elements.begin(); it!=mergee->elements.end(); ++it){
-    merger->elements.push_back(*it);
-    disjointSet::sets[*it]=merger;
-  }
-
-  mergee->elements.clear();
-  delete mergee;
-
+bool fall_through_cmp (const bb_pair_t &left_pair, const bb_pair_t &right_pair){
+	return (fall_through_counts[cur_fid][left_pair] > fall_through_counts[cur_fid][left_pair]);
 }
 
+void disjointSet::mergeBasicBlocksSameFunction(func_t fid, const bb_pair_t &bb_pair){
+	if(bb_pair.second==0 || bb_pair.first == bb_pair.second)
+		return;
+
+	Record left_rec(fid,bb_pair.first);
+	Record right_rec(fid,bb_pair.second);
+
+	if(disjointSet::is_connected_to_right(left_rec) || disjointSet::is_connected_to_left(right_rec))
+		return;
+	else
+		mergeSets(left_rec,right_rec);
+}
+
+void disjointSet::mergeSets(Record const &left_rec, Record const &right_rec){
+	disjointSet * left_set, * right_set;
+
+	left_set = sets[left_rec];
+	right_set = sets[right_rec];
+
+	for(deque<Record>::iterator it=right_set->elements.begin(); it!=right_set->elements.end(); ++it){
+		left_set->elements.push_front(*it);
+		disjointSet::sets[*it]=left_set;
+	}
+
+	right_set->elements.clear();
+	delete right_set;
+}
+
+/*
 void disjointSet::mergeSetsDifferentFunctions(const RecordPair &p){
 
   assert(!haveSameFunctions(p));
@@ -476,6 +537,7 @@ void disjointSet::mergeSetsDifferentFunctions(const RecordPair &p){
   mergee->elements.clear();
   delete mergee;
 }
+*/
 
 static void save_affinity_environment_variables(void) {
   const char *SampleRateEnvVar, *MaxWindowSizeEnvVar, *MaxFreqLevelEnvVar,  *DebugEnvVar;
@@ -511,6 +573,8 @@ extern "C" int start_basic_block_call_site_tracing(func_t _totalFuncs) {
   save_affinity_environment_variables();  
   totalFuncs = _totalFuncs;
   bb_count = new bb_t[totalFuncs];
+	last_bbs = new bb_t[totalFuncs]();
+	fall_through_counts = new FallThroughMap[totalFuncs];
   initialize_affinity_data();
   /* Set up the atexit handler. */
   atexit (affinityAtExitHandler);

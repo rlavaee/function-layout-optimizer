@@ -22,6 +22,8 @@ typedef uint16_t bb_t;
 func_t totalFuncs;
 bb_t * bb_count;
 
+typedef pair<bb_t,bb_t> bb_pair_t;
+
 class Record{
   func_t fid;
   bb_t bbid;
@@ -80,8 +82,15 @@ struct RecordPair_hash{
 };
 
 
+struct bb_pair_hash{
+  size_t operator()(const bb_pair_t &bbp) const{
+    return hash<uint32_t>()( ((uint32_t)bbp.first << 16) + bbp.second);
+  }
+}
+
 typedef std::unordered_map <const RecordPair, uint32_t *, RecordPair_hash > JointFreqMap;
 typedef std::unordered_map <const Record, uint32_t *, RecordHash> SingleFreqMap;
+typedef std::unordered_map <const bb_pair_t, uint32_t , bb_pair_hash> FallThroughMap;
 
 
 struct disjointSet {
@@ -90,6 +99,8 @@ struct disjointSet {
   size_t size(){ return elements.size();}
   static void mergeSetsSameFunctions(const RecordPair &p);
   static void mergeSetsDifferentFunctions(const RecordPair &p);
+	static void mergeSets(const RecordPair &p){
+	}
   static void mergeSets(const RecordPair &p){
     if(sets[p.first]!=sets[p.second]){
       if(haveSameFunctions(p))
@@ -113,9 +124,8 @@ struct SampledWindow{
   list<Record> partial_trace_list;
   set<Record> owners;
 
-  SampledWindow(const SampledWindow&);
-  SampledWindow();
-  ~SampledWindow();
+  SampledWindow() :wsize(0){};
+  ~SampledWindow(){};
   void erase(list<Record>::iterator trace_iter){
     partial_trace_list.erase(trace_iter);
     wsize--;
@@ -135,7 +145,7 @@ struct SampledWindow{
 
 void print_trace(list<SampledWindow> *);
 void initialize_affinity_data();
-wsize_t sequential_update_affinity(const Record &rec, list<SampledWindow>::iterator, bool missed);
+void sequential_update_affinity(const Record &rec, list<SampledWindow>::iterator, bool missed);
 void affinityAtExitHandler();
 
 
