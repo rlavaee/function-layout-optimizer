@@ -10,6 +10,7 @@ CGC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcall_edge_tracing_rt.a
 CGC_LLVM_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMCallEdgeTracing.so
 ABC_LLVM_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMCallSiteTracing.so
 REORDER_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMFunctionReordering.so
+BB_REORDER_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMBBReordering.so
 ICC_LLVM_LIB=$(LEVEL)/Debug+Asserts/lib/LLVMCacheCounting.so
 ICC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcache_counting_rt.a
 LIBPAPI=$(HOME)/usr/local/lib/libpapi.a
@@ -22,7 +23,7 @@ AABC_TR = $(PROG).aabc_tr.out
 FABC_TR = $(PROG).fabc_tr.out
 AWABC_TR = $(PROG).awabc_tr.out
 ABC_OUT	= $(PROG).abc.out
-BB_ABC_OUT = $(PROG).bb_abc.out
+BB_ABC_OUT = $(PROG).bbabc.out
 
 BABC_OUT = $(PROG).babc.out
 ICC_OUT = $(PROG).icc.out
@@ -49,7 +50,7 @@ $(AABC_TR): $(BITCODED) $(AABC_RT_LIB) $(ABC_LLVM_LIB)
 $(BB_ABC_TR): $(BITCODED) $(BB_ABC_RT_LIB) $(ABC_LLVM_LIB)
 	opt -load $(ABC_LLVM_LIB) -trace-call-sites-bb-level $< -o $@.bc
 	llc $@.bc -o $@.s
-	clang++ $@.s $(BB_ABC_RT_LIB) -o $@
+	clang++ $@.s $(BB_ABC_RT_LIB) -o $@ -pg
 
 $(BABC_TR): $(BITCODED) $(BABC_RT_LIB) $(ABC_LLVM_LIB)
 	opt -load $(ABC_LLVM_LIB) -bursty-trace-call-sites $< -o $@.bc
@@ -77,9 +78,15 @@ $(ABC_OUT): layout.abc $(BITCODED)
 	llc $@.bc -o $@.s
 	gcc $@.s -o $@
 
-$(BB_ABC_OUT): $(BITCODED) layout.bbabc
-	abc-llc $< -o $@.s
-	clang++ $@.s -o $@
+#$(BB_ABC_OUT): $(BITCODED) layout.bbabc
+#	abc-llc $< -o $@.s
+#	clang++ $@.s -o $@
+
+$(BB_ABC_OUT): layout.bbabc $(BITCODED)
+	opt -load $(BB_REORDER_LIB) -rlavaee-reorder-basic-blocks -layout $< <$(BITCODED)> $@.bc
+	llc --debug-pass=Executions -debug -disable-block-placement -disable-branch-fold $@.bc -o $@.s 2> $@.e
+	#llc --debug-pass=Details $@.bc -o $@.s
+	gcc $@.s -o $@
 
 $(ABC_TR): $(BITCODED)
 	opt -load $(ABC_LLVM_LIB) -trace-call-sites $< -o $@.bc

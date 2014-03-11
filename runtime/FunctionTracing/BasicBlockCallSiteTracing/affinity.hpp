@@ -21,63 +21,68 @@ typedef uint16_t func_t;
 typedef uint16_t bb_t;
 func_t totalFuncs;
 bb_t * bb_count;
+uint32_t * bb_count_cum;
+uint32_t ** fall_through_counts;
 
 typedef pair<bb_t,bb_t> bb_pair_t;
 
 class Record{
+  public:
   func_t fid;
   bb_t bbid;
-  public:
   Record(){};
   Record(func_t a, bb_t b): fid(a),bbid(b) {};
-  Record(const Record &rec): fid(rec.getFuncId()), bbid(rec.getBBId()){};
+  Record(const Record &rec): fid(rec.fid), bbid(rec.bbid){};
 
-  func_t getFuncId() const{
-    return fid;
-  }
-
-  bb_t getBBId() const{
-    return bbid;
-  }
+	uint32_t get_key() const{
+		return bb_count_cum[fid]+bbid;
+	}
 
   bool operator < (const Record &rhs) const{
-    if(getFuncId() < rhs.getFuncId())
+    if(fid < rhs.fid)
       return true;
-    if(getFuncId() > rhs.getFuncId())
+    if(fid > rhs.fid)
       return false;
-    if(getBBId() < rhs.getBBId())
+    if(bbid < rhs.bbid)
       return true;
     return false;
   }
 
   bool operator == (const Record &rhs) const{
-    return getFuncId()==rhs.getFuncId() && getBBId()==rhs.getBBId();
+    return fid==rhs.fid && bbid==rhs.bbid;
   }
 
   bool operator != (const Record &rhs) const {return !(*this==rhs);}
+
+	bool gets_paired_with(const Record &rec) const {
+		if(fid!=rec.fid)
+			return rec.bbid==0;
+		else
+			return bbid!=rec.bbid;
+	}
 
 };
 
 typedef pair<Record,Record> RecordPair;
 
 bool haveSameFunctions(const RecordPair &rec_pair){
-  return rec_pair.first.getFuncId() == rec_pair.second.getFuncId();
+  return rec_pair.first.fid == rec_pair.second.fid;
 }
 
 struct RecordHash{
-  size_t operator()(const Record& rec) const{
-    return hash<uint32_t>()( ((uint32_t)rec.getFuncId() *totalFuncs) + rec.getBBId());
+  size_t operator()(const Record &rec) const{
+    return hash<uint32_t>()( ((uint32_t) rec.fid << 16) + rec.bbid);
   }
 };
 
-RecordPair unordered_RecordPair(Record s1,Record s2){
+RecordPair unordered_RecordPair(const Record &s1,const Record &s2){
   return (s1<s2)?(RecordPair(s1,s2)):(RecordPair(s2,s1));
 }
 
 
 struct RecordPair_hash{
   size_t operator()(const RecordPair& rec_pair) const{
-    return hash<uint32_t>()( ((RecordHash()(rec_pair.first)) << 16) + RecordHash()(rec_pair.second));
+    return hash<uint32_t>()((rec_pair.first.get_key() << 16) + rec_pair.second.get_key());
   }
 };
 
@@ -104,17 +109,16 @@ struct disjointSet {
   }
 
   static bool is_connected_to_right(const Record &rec){
-    //assert(sets[rec] && "Has not been initialized!\n");
     return sets[rec]->elements.back()!=rec;
   }
 
   static bool is_connected_to_left(const Record &rec){
-    //assert(sets[rec] && "Has not been initialized!\n");
     return sets[rec]->elements.front()!=rec;
   }
 
   static void mergeBasicBlocksSameFunction(func_t fid, const bb_pair_t &bb_pair);
-  static void mergeSets(Record const &left_rec, Record const &right_rec);
+	static void mergeFunctions(const RecordPair &rec_pair);
+  static void mergeSets(const Record &left_rec, const Record &right_rec);
 
 };
 
@@ -126,13 +130,19 @@ struct SampledWindow{
   set<Record> owners;
 
   SampledWindow() :wsize(0){};
+
+	SampledWindow(const Record &rec) :wsize(0){
+		owners.insert(rec);
+		push_front(rec);
+	}
+
   ~SampledWindow(){};
-  void erase(list<Record>::iterator trace_iter){
+  void erase(const list<Record>::iterator &trace_iter){
     partial_trace_list.erase(trace_iter);
     wsize--;
-  };
+  }
 
-  void push_front(Record rec){
+  void push_front(const Record &rec){
     partial_trace_list.push_front(rec);
     wsize++;
   }
@@ -146,7 +156,7 @@ struct SampledWindow{
 
 void print_trace(list<SampledWindow> *);
 void initialize_affinity_data();
-void sequential_update_affinity(const Record &rec, list<SampledWindow>::iterator, bool missed);
+void sequential_update_affinity(const Record &rec, const list<SampledWindow>::iterator& grown_window_end, bool missed);
 void affinityAtExitHandler();
 
 
@@ -154,6 +164,9 @@ bool jointFreqSameFunctionsCmp(const RecordPair& pair_left, const RecordPair& pa
 bool jointFreqCountCmp(const RecordPair& pair_left, const RecordPair& pair_right);
 
 bool fall_through_cmp (const bb_pair_t &left_pair, const bb_pair_t &right_pair);
+uint32_t get_fall_through_count (func_t fid, const bb_pair_t &bb_pair){
+	return fall_through_counts[fid][bb_pair.first*bb_count[fid]+bb_pair.second];
+}
 
 char * get_versioned_filename(const char * basename){
   char * versioned_name = new char [MAX_FILE_NAME];

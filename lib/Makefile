@@ -9,7 +9,7 @@ LEVEL=..
 #
 # List all of the subdirectories that we will compile.
 #
-DIRS=FunctionTracing FunctionReordering CacheCounting
+DIRS=FunctionTracing FunctionReordering BasicBlockReordering CacheCounting 
 
 include $(LEVEL)/Makefile.common
 

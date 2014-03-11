@@ -53,6 +53,12 @@ void InsertBBAnalysisInitCall(Function * MainFn, uint16_t totalFuncs, std::vecto
     Args[1] = ConstantInt::get(UInt16Ty, *bb_count);
     CallInst::Create(SetBBCountFn, Args, "", InsertPos);
   }
+	
+	Constant *InitPostBBCount = M->getOrInsertFunction("initialize_post_bb_count_data",
+			VoidTy,
+			(Type *)0);
+	
+	CallInst::Create(InitPostBBCount,"",InsertPos);
 
 }
 
