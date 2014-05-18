@@ -44,7 +44,7 @@ namespace {
 	++i;
       }
       if(i!=totalFuncs){
-			errs() << "The permutation is shorter that expected\n";
+			errs() << "The permutation is shorter that expected: " << i << " " <<totalFuncs << "\n";
 			exit(0);
 	}
       

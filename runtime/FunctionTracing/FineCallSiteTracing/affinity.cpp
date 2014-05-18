@@ -344,11 +344,7 @@ void find_affinity_groups(){
     if(iter->first.first < iter->first.second)
       all_affEntry_iters.push_back(iter->first);
   }
-  comparisonFile = fopen("compare.txt","w");
   sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),affEntryCmp);
-  fclose(comparisonFile);
-  comparisonFile=NULL;
-
 	
   orderFile = fopen(get_versioned_filename("order"),"w");
 
@@ -558,12 +554,11 @@ bool affEntryCountCmp(const funcpair_t &left_pair, const funcpair_t &right_pair)
 		jointFreq_left_total+=jointFreq_left[wsize];
 		jointFreq_right_total+=jointFreq_right[wsize];
 	}
-
 	if(jointFreq_left_total > jointFreq_right_total)
 		return true;
 
 	if(jointFreq_left_total < jointFreq_right_total)
-		return true;
+		return false;
 
 	if(left_pair.first!=right_pair.first)
 		return left_pair.first > right_pair.first;

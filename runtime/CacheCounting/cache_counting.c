@@ -12,10 +12,10 @@ int *events;
 long long counters[MAX_EVENT_SIZE];
 long long sumcounters[MAX_EVENT_SIZE];
 
-int inst_events[4]={PAPI_L1_ICM, PAPI_L2_ICM, PAPI_L2_ICA, PAPI_L1_ICA};
+int inst_events[4]={PAPI_L1_ICM, PAPI_L2_ICM, PAPI_L2_TCM, PAPI_TLB_IM};
 //int data_events[eventsize]={PAPI_L1_DCM, PAPI_L2_DCM, PAPI_L2_DCA};
 //int accesses_events[eventsize]={PAPI_TOT_INS,PAPI_L2_ICA,PAPI_L2_DCA};
-char inst_eventnames[4][7]={"L1_ICM\0", "L2_ICM\0","L2_ICA\0","L1_ICA\0"};
+char inst_eventnames[4][7]={"L1_ICM\0", "L2_ICM\0","L2_TCM\0","TLB_IM\0"};
 //char * data_eventnames[eventsize]={"L1_DCM", "L2_DCM","L2_DCA";
 //char * accesses_eventnames[eventsize]={"TOT_INST","L2_ICA","L2_DCA"};
 
@@ -23,7 +23,7 @@ char * ccFileName;
 
 
 void print_counters(void){
-		FILE * ccFile = fopen("cachecount_ro.out","r");
+		FILE * ccFile = fopen("hw_cntrs.out","r");
 		int i=0;
 		for(;i<eventsize;++i){
 				counters[i]=0;
@@ -37,7 +37,7 @@ void print_counters(void){
 		if(ccFile!=NULL)
 				fclose(ccFile);
 
-		ccFile = fopen("cachecount_ro.out","w");
+		ccFile = fopen("hw_cntrs.out","w");
 		for(i=0;i<eventsize;++i){
 				//printf("%lld %lld\n",counters[i], sumcounters[i]);
 				long long me = counters[i];

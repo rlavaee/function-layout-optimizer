@@ -13,9 +13,9 @@
 using namespace std;
 const char * version_str=".fabc";
 const char * one_dim_version=".1D";
-const char * two_dim_version_c=".2D";
+const char * two_dim_version_c="";
 const char * two_dim_version_l=".2Dl";
-const char * count_version=".cnt";
+const char * count_version="";
 
 typedef uint8_t wsize_t;
 typedef uint16_t func_t;

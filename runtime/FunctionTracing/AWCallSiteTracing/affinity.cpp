@@ -322,16 +322,16 @@ void affinityAtExitHandler(){
 		//find_affinity_groups();
   	//print_optimal_layout();
 
-	int maxWindowSizeArray[12]={2,4,6,8,10,12,14,20,25,30,35,40};
+	//int maxWindowSizeArray[12]={2,4,6,8,10,12,14,20,25,30,35,40};
 	
-	for(int i=0;i<12;++i){
+	//for(int i=0;i<12;++i){
 
-		maxWindowSize=maxWindowSizeArray[i];
+	//	maxWindowSize=maxWindowSizeArray[i];
 		
 		affEntryCmp=affEntryCountCmp;
 		find_affinity_groups();
-		print_optimal_layouts();
-	}
+		print_optimal_layout();
+	//}
 
 }
 

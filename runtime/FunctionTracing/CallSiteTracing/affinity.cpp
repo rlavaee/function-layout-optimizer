@@ -208,7 +208,7 @@ void print_optimal_layout(){
 	char affinityFilePath[80];
 	strcpy(affinityFilePath,"layout");
 	strcat(affinityFilePath,version_str);
-	strcat(affinityFilePath,(affEntryCmp==affEntry1DCmp)?(".1D"):(".2D"));
+	strcat(affinityFilePath,(affEntryCmp==affEntry1DCmp)?(".1D"):(""));
   FILE *layoutFile = fopen(affinityFilePath,"w");  
 
   for(int i=0;i<totalFuncs;++i){
@@ -223,13 +223,11 @@ void print_optimal_layouts(){
 	short * layout = new short[totalFuncs];
 	int count=0;
 	for(int i=0; i< totalFuncs; ++i){
-		//printf("i is now %d\n",i);
 		if(disjointSet::sets[i]){
 			disjointSet * thisSet=disjointSet::sets[i];
 			for(deque<short>::iterator it=disjointSet::sets[i]->elements.begin(), 
 					it_end=disjointSet::sets[i]->elements.end()
 					; it!=it_end ; ++it){
-					//printf("this is *it:%d\n",*it);
 				layout[count++]=*it;
 				disjointSet::sets[*it]=0;
 			}
@@ -463,10 +461,11 @@ void affinityAtExitHandler(){
 	aggregate_affinity();
 	
 
-		//affEntryCmp=affEntry1DCmp;
-		//find_affinity_groups();
-  	//print_optimal_layout();
+	affEntryCmp=affEntry2DCmp;
+	find_affinity_groups();
+  print_optimal_layout();
 
+/*
 	int maxWindowSizeArray[12]={2,4,6,8,10,12,14,20,25,30,35,40};
 	
 	for(int i=0;i<12;++i){
@@ -475,9 +474,10 @@ void affinityAtExitHandler(){
 		
 		affEntryCmp=affEntry2DCmp;
 		find_affinity_groups();
-  	//print_optimal_layout();
-		print_optimal_layouts();
+  	print_optimal_layout();
+			print_optimal_layouts();
 	}
+	*/
 
 }
 

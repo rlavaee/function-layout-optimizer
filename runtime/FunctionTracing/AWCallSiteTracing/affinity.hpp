@@ -16,7 +16,7 @@ using namespace std;
 short totalFuncs, maxWindowSize;
 const char * version_str=".awabc";
 const char * one_dim_version=".1D";
-const char * count_version=".cnt";
+const char * count_version="";
 const char * two_dim_version_c=".2D";
 const char * two_dim_version_l=".2Dl";
 

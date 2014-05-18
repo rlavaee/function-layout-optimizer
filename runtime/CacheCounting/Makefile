@@ -12,12 +12,13 @@ LEVEL = ../..
 LIBRARYNAME = cache_counting_rt
 LINK_LIBS_IN_SHARED = 1
 SHARED_LIBRARY = 1
+LIBPAPI=$(HOME)/usr/lib/libpapi.a
 
 # Build and install this archive.                                                                                                                  
 BUILD_ARCHIVE = 1
 override NO_INSTALL_ARCHIVES =
 CFLAGS=-I $(HOME)/usr/include
-#LFLAGS= $(LIBPAPI)
+LFLAGS= $(LIBPAPI)
 
 include $(LEVEL)/Makefile.common
 

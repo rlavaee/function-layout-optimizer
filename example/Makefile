@@ -16,7 +16,7 @@ ICC_RT_LIB=$(LEVEL)/Debug+Asserts/lib/libcache_counting_rt.a
 LIBPAPI=$(HOME)/usr/local/lib/libpapi.a
 BITCODED = $(PROG).bc
 COMPILED = $(PROG).out
-BB_ABC_TR	= $(PROG).bb_abc_tr.out
+BB_ABC_TR	= $(PROG).bbabc.tr
 ABC_TR	= $(PROG).abc_tr.out
 BABC_TR	= $(PROG).babc_tr.out
 AABC_TR = $(PROG).aabc_tr.out
@@ -83,8 +83,8 @@ $(ABC_OUT): layout.abc $(BITCODED)
 #	clang++ $@.s -o $@
 
 $(BB_ABC_OUT): layout.bbabc $(BITCODED)
-	opt -load $(BB_REORDER_LIB) -rlavaee-reorder-basic-blocks -layout $< <$(BITCODED)> $@.bc
-	llc --debug-pass=Executions -debug -disable-block-placement -disable-branch-fold $@.bc -o $@.s 2> $@.e
+	opt -load $(BB_REORDER_LIB) -rlavaee-reorder-basic-blocks -layout $< -new-layout $<.new <$(BITCODED)> $@.bc
+	abc-llc --debug-pass=Executions -debug -disable-block-placement -disable-branch-fold -layout $<.new $@.bc -o $@.s 2> $@.e
 	#llc --debug-pass=Details $@.bc -o $@.s
 	gcc $@.s -o $@
 
