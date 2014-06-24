@@ -410,7 +410,7 @@ void affinityAtExitHandler(){
 
 	//maxWindowSize=maxWindowSizeArray[i];
 		
-  	affEntryCmp=&affEntryCountCmp;
+  	affEntryCmp=&affEntry2DCmpConstantStep;
   	find_affinity_groups();
  	 	print_optimal_layout();
 	//}
