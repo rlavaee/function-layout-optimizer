@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <unistd.h>
 
 
 #define MAX_EVENT_SIZE 4
@@ -23,7 +24,10 @@ char * ccFileName;
 
 
 void print_counters(void){
-		FILE * ccFile = fopen("hw_cntrs.out","r");
+		char count_filename[80];
+		sprintf(count_filename,"hw_cntrs_%d.out",getpid());
+		//FILE * ccFile = fopen(count_filename,"r");
+		FILE * ccFile = NULL;
 		int i=0;
 		for(;i<eventsize;++i){
 				counters[i]=0;
@@ -37,7 +41,7 @@ void print_counters(void){
 		if(ccFile!=NULL)
 				fclose(ccFile);
 
-		ccFile = fopen("hw_cntrs.out","w");
+		ccFile = fopen(count_filename,"w");
 		for(i=0;i<eventsize;++i){
 				//printf("%lld %lld\n",counters[i], sumcounters[i]);
 				long long me = counters[i];
