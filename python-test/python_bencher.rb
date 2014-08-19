@@ -1,8 +1,8 @@
 require 'fileutils'
 require 'open3'
 require 'yaml'
-PYTHON="/u/rlavaee/usr/local/bin/python2.7"
-OPTS=[".cgc",".abc",".fabc"]
+PYTHON="/u/rlavaee/usr/bin/python"
+OPTS=[".cgc",".abc"]
 SUFFIXES=[".ni",".in"]
 PIN="/p/compiler/Pin/pin-2.12-58423-gcc.4.4.7-linux/pin -t /p/compiler/Pin/pin-2.12-58423-gcc.4.4.7-linux/source/tools/Footprint/obj-intel64/dual_fp_all.so -m 2"
 LOCA_INPUTS = {"django"=>"/u/rlavaee/benchmarks/performance/bm_django.py -n 1",
@@ -15,7 +15,7 @@ LOCA_ITERATIONS = {"django"=>1, "fastpickle"=>1, "mako"=>5, "nqueens"=>1, "regex
 
 AllTrainBench="django fastpickle mako nqueens regex_compile slowpickle".split(' ')
 AllBench=AllTrainBench
-SAMPLE_RATES = {".abc"=>8, ".fabc"=>8, ".awabc"=>6, ".babc"=>6}
+SAMPLE_RATES = {".cgc"=>0, ".abc"=>8, ".fabc"=>8, ".awabc"=>6, ".babc"=>6}
 
 class PythonBenchmark
   @@PythonRoot="/u/rlavaee/Python-2.7.5"
@@ -189,7 +189,7 @@ class PythonBenchmark
       str += "benchmark: #{input}\n"
       pythonbench=PythonBenchmark.new(input)
       pythonbench.mws='12'
-      pythonbench.suffix=".ni"
+      pythonbench.suffix=".in"
       str += ".ref\t"+pythonbench.get_runtime(input,".ref",stress)+"\n"
       [".cgc",".abc",".fabc"].each do |opt|
         pythonbench.sr=SAMPLE_RATES[opt]
@@ -206,7 +206,7 @@ class PythonBenchmark
     AllTrainBench.each do |trainbench|
       r_args = Array.new
       pythonbench=PythonBenchmark.new(trainbench)
-      pythonbench.suffix=".ni"
+      pythonbench.suffix=".in"
       [trainbench].each {|input| pythonbench.run(input,".icc",".ref",stress)} if(run)
       pythonbench.mws='12'
       OPTS.each do |opt|
@@ -227,7 +227,7 @@ class PythonBenchmark
     AllTrainBench.each do |trainbench|
       r_args = Array.new
       pythonbench=PythonBenchmark.new(trainbench)
-      pythonbench.suffix=".ni"
+      pythonbench.suffix=".in"
       [trainbench].each {|input| r_args << pythonbench.run_loca(input,".ref",run)}
       pythonbench.mws='12'
       opts = (opt.nil?)?(OPTS):([opt])
@@ -249,7 +249,7 @@ class PythonBenchmark
   def PythonBenchmark.build_opt(opt,run=false)
     AllTrainBench.each do |trainbench|
       pythonbench=PythonBenchmark.new(trainbench)
-      pythonbench.suffix=".ni"
+      pythonbench.suffix=".in"
       pythonbench.mws='12'
       pythonbench.opt = opt
       pythonbench.sr=SAMPLE_RATES[opt]
@@ -266,8 +266,9 @@ class PythonBenchmark
   def PythonBenchmark.run_ref(stress=1)
     AllTrainBench.each do |input|
       pythonbench=PythonBenchmark.new(input)
-      pythonbench.suffix=".ni"
+      pythonbench.suffix=".in"
       pythonbench.run(input,".orig",".ref",stress)
+      pythonbench.run(input,".icc",".ref",stress)
     end
   end
 
@@ -275,7 +276,7 @@ class PythonBenchmark
   def PythonBenchmark.run_all(train=false,stress=1)
     AllTrainBench.each do |trainbench|
       pythonbench=PythonBenchmark.new(trainbench)
-      pythonbench.suffix=".ni"
+      pythonbench.suffix=".in"
       pythonbench.mws='12'
       OPTS.each do |opt|
         pythonbench.opt = opt
