@@ -1,8 +1,8 @@
 require 'fileutils'
 require 'open3'
 require 'yaml'
-PYTHON="/u/rlavaee/usr/bin/python"
-OPTS=[".cgc",".abc"]
+PYTHON="python2.7"
+OPTS=[".abc",".cgc"]
 SUFFIXES=[".ni",".in"]
 PIN="/p/compiler/Pin/pin-2.12-58423-gcc.4.4.7-linux/pin -t /p/compiler/Pin/pin-2.12-58423-gcc.4.4.7-linux/source/tools/Footprint/obj-intel64/dual_fp_all.so -m 2"
 LOCA_INPUTS = {"django"=>"/u/rlavaee/benchmarks/performance/bm_django.py",
@@ -15,8 +15,39 @@ LOCA_ITERATIONS = {"django"=>1, "fastpickle"=>1, "mako"=>5, "nqueens"=>1, "regex
 
 AllTrainBench="django fastpickle mako nqueens regex_compile slowpickle".split(' ')
 AllTrainBench="django mako nqueens".split(' ')
+AllBench= "2to3 call_simple call_method call_method_slots call_method_unknown django float html5lib html5lib_warmup mako nbody nqueens fastpickle pickle_dict pickle_list regex_compile regex_effbot regex_v8 richards slowpickle slowunpickle slowspitfire spambayes bzr_startup hg_startup unpack_sequence unpickle_list".split(' ')
+AllTrainBench="django mako nqueens".split(' ')
 AllBench=AllTrainBench
 SAMPLE_RATES = {".cgc"=>0, ".abc"=>8, ".fabc"=>8, ".awabc"=>6, ".babc"=>6}
+
+class ProgramSym
+	include Comparable
+	attr_reader :name
+	attr_reader :start
+	attr_reader :type
+	attr_accessor :size
+
+	def initialize(name,type,start)
+		@name = name
+		@type = type
+		@start = start.to_i(16)
+		@size = 0
+	end
+
+	def <=> (anotherSym)
+		self.start <=> anotherSym.start
+	end
+
+	def to_s
+		"#{@name}\t#{@type}\t#{@start}\t#{@size}"
+	end
+
+
+	#def to_s
+	#	"%s\t%d" % [@name,@size]
+	#end
+end
+
 
 class PythonBenchmark
   @@PythonRoot="/u/rlavaee/Python-2.7.5"
@@ -59,6 +90,10 @@ class PythonBenchmark
     system "make -j 4 build-reg#{suffix}"
   end
 
+  def PythonBenchmark.rebuild_pg(suffix)
+    Dir.chdir(@@PythonRoot)
+    system "make -j 4 build-pg#{suffix}"
+  end
 
   def PythonBenchmark.run_icc_ref		
     Dir.chdir(@@BenchRoot)
@@ -95,7 +130,7 @@ class PythonBenchmark
   end
 
   def run_loca(input,version,run=false)
-    loca_output_f = "#{@@ResultDir}/python2.7#{get_suffix(".orig",version)}#{@suffix}.#{input}.data"
+    loca_output_f = "#{@@ResultDir}/python2.7#{get_suffix(".orig",version)}#{@suffix}.#{input}.loca"
     if(run)
       output = `#{PIN} -o #{loca_output_f} -- #{@@PythonRoot}/python2.7#{get_suffix(".orig",version)}#{@suffix} #{LOCA_INPUTS[input]} -n #{LOCA_ITERATIONS[input]}`
       puts "ran loca for #{version}: #{output}" 
@@ -230,23 +265,81 @@ class PythonBenchmark
       r_args = Array.new
       pythonbench=PythonBenchmark.new(trainbench)
       pythonbench.suffix=".in"
-      [trainbench].each {|input| r_args << pythonbench.run_loca(input,".ref",run)}
       pythonbench.mws='12'
       opts = (opt.nil?)?(OPTS):([opt])
       opts.each do |opt|
         pythonbench.sr=SAMPLE_RATES[opt]
         pythonbench.opt = opt
         Dir.chdir("/u/rlavaee/benchmarks")
-        [trainbench].each do |input|
-          r_args << pythonbench.run_loca(input,".test",run)
-        end
+        r_args << pythonbench.run_loca(trainbench,".test",run)
       end
 
-      puts `Rscript ~/loca/server/draw_mr_fp.r #{r_args.join(' ')}`
+      r_args << pythonbench.run_loca(trainbench,".ref",run)
+      puts "Rscript ~/loca/server/draw_mr_allv_64_4k.r #{r_args.join(' ')}"
+      puts `Rscript ~/loca/server/draw_mr_allv_64_4k.r #{r_args.join(' ')}`
 
     end
-
   end
+
+	def PythonBenchmark.run_pg(suffix,run=false)
+		pg_prog = "#{@@PythonRoot}/python2.7.orig.ref#{suffix}.pg"
+		neutral_prog = "#{@@PythonRoot}/python2.7.orig.ref#{suffix}"
+		Dir.chdir("/u/rlavaee/benchmarks")
+		if(run)
+			FileUtils.rm("gmon.sum") if(File.exists?("gmon.sum"))
+			AllTrainBench.each do |input|
+				#`#{PYTHON} perf.py -f -v -b #{input} #{pg_prog} #{neutral_prog}` 
+				`#{pg_prog} #{LOCA_INPUTS[input]} -n 50`
+				`gprof -b -s -p #{pg_prog} gmon.out #{(File.exists?("gmon.sum"))?("gmon.sum"):("")}`
+			end
+		end
+
+		@all_used_funcs={}
+
+		gprof = `gprof -b -p #{pg_prog} gmon.sum`
+		gprof.lines.each_with_index do |line,index|
+			if(index>5)
+				prof_record = line.split
+				@all_used_funcs[prof_record[6]]=prof_record[3]
+			end
+		end
+		
+		all_syms = []
+		@all_sized_funcs = {}
+		
+		all_syms_str = `nm #{pg_prog}`
+		
+		all_syms_str.each_line do |line|
+			sym = line.split
+			all_syms << ProgramSym.new(sym[2],sym[1],sym[0])
+		end
+
+	
+		all_syms = all_syms.sort
+		puts all_syms
+		all_syms.each_with_index do |symi,i|
+			all_syms[i-1].size = symi.start - all_syms[i-1].start if(i!=0)
+		end
+
+
+		all_syms.each do |sym|
+			puts sym.size
+			@all_sized_funcs[sym.name]=sym.size if (sym.type=='T' or sym.type=='t')
+		end
+		
+		File.open("/u/rlavaee/funcuse-data/python2.7#{suffix}.data","w") do |f|
+			f.write("function\tsize\tncalls\n")
+			@all_used_funcs.each do |func,ncalls|
+				if(@all_sized_funcs.include?(func))
+					f.write("#{func}\t#{@all_sized_funcs[func]}\t#{ncalls}\n")
+				end
+			end
+		end
+		
+		#puts "Rscript plot-used-funcs.r #{@@ResultDir}/func#{suffix}.data #{@@ResultDir}/python2.7#{suffix}.funcuse.pdf"
+		#`Rscript plot-used-funcs.r #{@@ResultDir}/func#{suffix}.data #{@@ResultDir}/python2.7#{suffix}.funcuse.pdf`
+	end
+
 
   def PythonBenchmark.build_opt(opt,run=false)
     AllTrainBench.each do |trainbench|
@@ -288,8 +381,8 @@ class PythonBenchmark
         Dir.chdir("/u/rlavaee/benchmarks")
         [trainbench].each do |input|
           pythonbench.rebuild_optimized if(train)
-          pythonbench.run(input,".orig",".test",stress)
-          pythonbench.run(input,".icc",".test",stress)
+          #pythonbench.run(input,".orig",".test",stress)
+          #pythonbench.run(input,".icc",".test",stress)
         end
       end
     end
