@@ -1,0 +1,10 @@
+Running mako...
+
+Report on Linux node2x4x2a.cs.rochester.edu 2.6.43.8-1.fc15.x86_64 #1 SMP Mon Jun 4 20:33:44 UTC 2012 x86_64 x86_64
+Total CPU cores: 16
+
+### mako ###
+Min: 0.122992 -> 26.208724: 0.0047x slower
+Avg: 0.136862 -> 26.584413: 0.0051x slower
+Significant (t=-638.83)
+Stddev: 0.02263 -> 0.20576: 9.0936x larger
