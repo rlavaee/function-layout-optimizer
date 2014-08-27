@@ -1,6 +1,6 @@
 library(ggplot2)
 library(reshape2)
-stresses <- c(1,2,4,10)
+stresses <- c(1,2,4,6,8,10)
 windows <- c(2,4,6,8,10,12,14,20,25,30,35,40)
 big_df = data.frame()
 for(stress in stresses){
@@ -12,7 +12,7 @@ for(stress in stresses){
 }
 
 big_df.m <- melt(big_df , id=c('stress','window'),variable.name='input',value.name='Speedup')
-print(big_df.m)
+#print(big_df.m)
 
 
 saveto <- "stress.pdf"
