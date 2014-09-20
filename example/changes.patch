@@ -1,0 +1,44 @@
+Index: CodeGen/LLVMTargetMachine.cpp
+===================================================================
+--- CodeGen/LLVMTargetMachine.cpp	(revision 200949)
++++ CodeGen/LLVMTargetMachine.cpp	(working copy)
+@@ -216,7 +216,9 @@
+   }
+ 
+   // Create the AsmPrinter, which takes ownership of AsmStreamer if successful.
++  errs() << "Creating the printer\n";
+   FunctionPass *Printer = getTarget().createAsmPrinter(*this, *AsmStreamer);
++  //errs() << "Before adding the streamer:\t" << PM.getAsPMDataManager->getNumContainedPasses()<<"\n-----\n";
+   if (Printer == 0)
+     return true;
+ 
+@@ -224,6 +226,7 @@
+   AsmStreamer.take();
+ 
+   PM.add(Printer);
++  //errs() << "After adding the streamer:\t" << PM.getAsPMDataManager->getNumContainedPasses()<<"\n-----\n";
+ 
+   return false;
+ }
+Index: IR/LegacyPassManager.cpp
+===================================================================
+--- IR/LegacyPassManager.cpp	(revision 200949)
++++ IR/LegacyPassManager.cpp	(working copy)
+@@ -981,6 +981,9 @@
+ void PMDataManager::add(Pass *P, bool ProcessAnalysis) {
+   // This manager is going to manage pass P. Set up analysis resolver
+   // to connect them.
++  errs() << "Before adding the pass:\t" << getNumContainedPasses()<<"\n-----\n";
++  dumpPassArguments();
++  
+   AnalysisResolver *AR = new AnalysisResolver(*this);
+   P->setResolver(AR);
+ 
+@@ -1052,6 +1055,7 @@
+ 
+   // Add pass
+   PassVector.push_back(P);
++  errs() << "After adding the pass:\t" << getNumContainedPasses()<<"\n-----\n";
+ }
+ 
+ 
