@@ -1,7 +1,7 @@
-Index: CodeGen/LLVMTargetMachine.cpp
+Index: lib/CodeGen/LLVMTargetMachine.cpp
 ===================================================================
---- CodeGen/LLVMTargetMachine.cpp	(revision 200949)
-+++ CodeGen/LLVMTargetMachine.cpp	(working copy)
+--- lib/CodeGen/LLVMTargetMachine.cpp	(revision 200949)
++++ lib/CodeGen/LLVMTargetMachine.cpp	(working copy)
 @@ -216,7 +216,9 @@
    }
  
@@ -20,10 +20,10 @@ Index: CodeGen/LLVMTargetMachine.cpp
  
    return false;
  }
-Index: IR/LegacyPassManager.cpp
+Index: lib/IR/LegacyPassManager.cpp
 ===================================================================
---- IR/LegacyPassManager.cpp	(revision 200949)
-+++ IR/LegacyPassManager.cpp	(working copy)
+--- lib/IR/LegacyPassManager.cpp	(revision 200949)
++++ lib/IR/LegacyPassManager.cpp	(working copy)
 @@ -981,6 +981,9 @@
  void PMDataManager::add(Pass *P, bool ProcessAnalysis) {
    // This manager is going to manage pass P. Set up analysis resolver
@@ -42,3 +42,42 @@ Index: IR/LegacyPassManager.cpp
  }
  
  
+Index: lib/LTO/LTOCodeGenerator.cpp
+===================================================================
+--- lib/LTO/LTOCodeGenerator.cpp	(revision 200949)
++++ lib/LTO/LTOCodeGenerator.cpp	(working copy)
+@@ -476,26 +476,33 @@
+ 
+   PassManager codeGenPasses;
+ 
++  PassManager codeEmitterPass;
++
+   codeGenPasses.add(new DataLayout(*TargetMach->getDataLayout()));
+   TargetMach->addAnalysisPasses(codeGenPasses);
+ 
+   formatted_raw_ostream Out(out);
+ 
++  codeEmitterPass.add(new DataLayout(*TargetMach->getDataLayout()));
++
+   // If the bitcode files contain ARC code and were compiled with optimization,
+   // the ObjCARCContractPass must be run, so do it unconditionally here.
+   codeGenPasses.add(createObjCARCContractPass());
+ 
+-  if (TargetMach->addPassesToEmitFile(codeGenPasses, Out,
++  if (TargetMach->addPassesToEmitFile(codeEmitterPass, Out,
+                                       TargetMachine::CGFT_ObjectFile)) {
+     errMsg = "target file type not supported";
+     return false;
+   }
+ 
++  //TargetMach->addAnalysisPasses(codeGenPasses);
++
+   // Run our queue of passes all at once now, efficiently.
+   passes.run(*mergedModule);
+ 
+   // Run the code generator, and write assembly file
+   codeGenPasses.run(*mergedModule);
++  codeEmitterPass.run(*mergedModule);
+ 
+   return true;
+ }
