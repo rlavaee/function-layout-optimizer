@@ -65,7 +65,7 @@ Index: lib/CodeGen/MBBTracing.cpp
 ===================================================================
 --- lib/CodeGen/MBBTracing.cpp	(revision 0)
 +++ lib/CodeGen/MBBTracing.cpp	(working copy)
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,46 @@
 +#include "llvm/CodeGen/MachineFunctionPass.h"
 +#include "llvm/CodeGen/MachineFunction.h"
 +#include "llvm/CodeGen/Passes.h"
@@ -87,6 +87,7 @@ Index: lib/CodeGen/MBBTracing.cpp
 +}
 +
 +char MBBTracing::ID = 0;
++char &llvm::MBBTracingID = MBBTracing::ID;
 +
 +INITIALIZE_PASS(MBBTracing, "machine-block-trace",
 +                "Inserts profiling information in every machine basic block", 
