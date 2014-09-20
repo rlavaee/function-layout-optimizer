@@ -1,3 +1,44 @@
+Index: include/llvm/CodeGen/Passes.h
+===================================================================
+--- include/llvm/CodeGen/Passes.h	(revision 200949)
++++ include/llvm/CodeGen/Passes.h	(working copy)
+@@ -310,6 +310,10 @@
+   /// Add standard basic block placement passes.
+   virtual void addBlockPlacement();
+ 
++
++  /// rlavaee
++  virtual void addMBBTracing();
++
+   /// addPreEmitPass - This pass may be implemented by targets that want to run
+   /// passes immediately before machine code is emitted.  This should return
+   /// true if -print-machineinstrs should print out the code after the passes.
+@@ -568,6 +572,11 @@
+   /// bundles (created earlier, e.g. during pre-RA scheduling).
+   extern char &FinalizeMachineBundlesID;
+ 
++
++  /// rlavaee: MBBTracing - This pass inserts profiling instructions for
++  /// each machine basic block.
++  extern char &MBBTracingID;
++
+ } // End llvm namespace
+ 
+ #endif
+Index: include/llvm/InitializePasses.h
+===================================================================
+--- include/llvm/InitializePasses.h	(revision 200949)
++++ include/llvm/InitializePasses.h	(working copy)
+@@ -265,6 +265,9 @@
+ void initializeSLPVectorizerPass(PassRegistry&);
+ void initializeBBVectorizePass(PassRegistry&);
+ void initializeMachineFunctionPrinterPassPass(PassRegistry&);
++
++///rlavaee
++void initializeMBBTracingPass(PassRegistry&);
+ }
+ 
+ #endif
 Index: lib/CodeGen/LLVMTargetMachine.cpp
 ===================================================================
 --- lib/CodeGen/LLVMTargetMachine.cpp	(revision 200949)
@@ -20,6 +61,93 @@ Index: lib/CodeGen/LLVMTargetMachine.cpp
  
    return false;
  }
+Index: lib/CodeGen/MBBTracing.cpp
+===================================================================
+--- lib/CodeGen/MBBTracing.cpp	(revision 0)
++++ lib/CodeGen/MBBTracing.cpp	(working copy)
+@@ -0,0 +1,45 @@
++#include "llvm/CodeGen/MachineFunctionPass.h"
++#include "llvm/CodeGen/MachineFunction.h"
++#include "llvm/CodeGen/Passes.h"
++#include "llvm/Support/Debug.h"
++#include "llvm/Support/raw_ostream.h"
++using namespace llvm;
++
++namespace {
++  class MBBTracing : public MachineFunctionPass {
++    public:
++      static char ID;
++      MBBTracing(): MachineFunctionPass(ID){
++        initializeMBBTracingPass(*PassRegistry::getPassRegistry());
++      }
++
++      bool runOnMachineFunction(MachineFunction &MF);
++      
++  };
++}
++
++char MBBTracing::ID = 0;
++
++INITIALIZE_PASS(MBBTracing, "machine-block-trace",
++                "Inserts profiling information in every machine basic block", 
++                false, false)
++
++bool MBBTracing::runOnMachineFunction(MachineFunction &MF){
++  for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; 
++      I++){
++     MachineBasicBlock *MBB = I;
++    
++    for (MachineBasicBlock::iterator II = MBB->begin(), IE = MBB->end(); II != IE;
++        II++){
++      MachineInstr *MI = II;
++      if(MI->isCall()){
++        errs () << *MI << "\n---------\n";
++      }
++      
++    }
++
++  }
++
++  return false;
++}
++
+Index: lib/CodeGen/Passes.cpp
+===================================================================
+--- lib/CodeGen/Passes.cpp	(revision 200949)
++++ lib/CodeGen/Passes.cpp	(working copy)
+@@ -87,6 +87,10 @@
+ static cl::opt<bool> EarlyLiveIntervals("early-live-intervals", cl::Hidden,
+     cl::desc("Run live interval analysis earlier in the pipeline"));
+ 
++// rlavaee: enable machine block profiling
++static cl::opt<bool> EnableMBBTracing("enable-machine-block-tracing",cl::Hidden,
++    cl::desc("Enable Machine Block Tracing Instrumentation"));
++
+ /// Allow standard passes to be disabled by command line options. This supports
+ /// simple binary flags that either suppress the pass or do nothing.
+ /// i.e. -disable-mypass=false has no effect.
+@@ -536,6 +540,10 @@
+ 
+   if (addPreEmitPass())
+     printAndVerify("After PreEmit passes");
++
++  // rlavaee: add after all the other passes
++  if (EnableMBBTracing)
++    addMBBTracing();
+ }
+ 
+ /// Add passes that optimize machine instructions in SSA form.
+@@ -749,3 +757,10 @@
+     printAndVerify("After machine block placement.");
+   }
+ }
++
++/// rlavaee: Add machine block tracing instrumentation pass.
++void TargetPassConfig::addMBBTracing() {
++  if(addPass(&MBBTracingID)) {
++    printAndVerify("After machine block tracing instrumentation.");
++  }
++}
 Index: lib/IR/LegacyPassManager.cpp
 ===================================================================
 --- lib/IR/LegacyPassManager.cpp	(revision 200949)
