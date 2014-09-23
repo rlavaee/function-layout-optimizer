@@ -1,0 +1,941 @@
+Index: lib/CodeGen/Passes.cpp
+===================================================================
+--- lib/CodeGen/Passes.cpp	(revision 197552)
++++ lib/CodeGen/Passes.cpp	(working copy)
+@@ -87,7 +87,6 @@
+ PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
+                    cl::desc("Print machine instrs"),
+                    cl::value_desc("pass-name"), cl::init("option-unspecified"));
+-
+ // Experimental option to run live interval analysis early.
+ static cl::opt<bool> EarlyLiveIntervals("early-live-intervals", cl::Hidden,
+     cl::desc("Run live interval analysis earlier in the pipeline"));
+@@ -389,7 +388,6 @@
+   // Make sure that no unreachable blocks are instruction selected.
+   addPass(createUnreachableBlockEliminationPass());
+ }
+-
+ /// Turn exception handling constructs into something the code generators can
+ /// handle.
+ void TargetPassConfig::addPassesToHandleExceptions() {
+Index: lib/LTO/LTOCodeGenerator.cpp
+===================================================================
+--- lib/LTO/LTOCodeGenerator.cpp	(revision 197552)
++++ lib/LTO/LTOCodeGenerator.cpp	(working copy)
+@@ -12,6 +12,7 @@
+ //
+ //===----------------------------------------------------------------------===//
+ 
++#include "llvm/Support/raw_ostream.h"
+ #include "llvm/LTO/LTOCodeGenerator.h"
+ #include "llvm/LTO/LTOModule.h"
+ #include "llvm/ADT/StringExtras.h"
+@@ -108,6 +109,12 @@
+   initializeMemCpyOptPass(R);
+   initializeDCEPass(R);
+   initializeCFGSimplifyPassPass(R);
++	//added by rlavaee
++	initializeBasicBlockCallSiteTracerPass(R);
++	initializeCallEdgeTracerPass(R);
++	initializeFunctionCallSiteTracerPass(R);
++	initializeFunctionReordererPass(R);
++	initializeInstCacheCountingPass(R);
+ }
+ 
+ bool LTOCodeGenerator::addModule(LTOModule* mod, std::string& errMsg) {
+Index: lib/Transforms/IPO/CMakeLists.txt
+===================================================================
+--- lib/Transforms/IPO/CMakeLists.txt	(revision 197552)
++++ lib/Transforms/IPO/CMakeLists.txt	(working copy)
+@@ -20,6 +20,10 @@
+   PruneEH.cpp
+   StripDeadPrototypes.cpp
+   StripSymbols.cpp
++	CallSiteTracing.cpp
++	CommonTracing.cpp
++	FunctionReordering.cpp
++	CallEdgeTracing.cpp
+   )
+ 
+ add_dependencies(LLVMipo intrinsics_gen)
+Index: lib/Transforms/IPO/CommonTracing.cpp
+===================================================================
+--- lib/Transforms/IPO/CommonTracing.cpp	(revision 0)
++++ lib/Transforms/IPO/CommonTracing.cpp	(revision 0)
+@@ -0,0 +1,91 @@
++#include "CommonTracing.hpp"
++#include "llvm/Support/raw_ostream.h"
++void InsertCodeAnalysisInitCall(Function * MainFn, const char *FnName, short totalFuncs){
++  LLVMContext &Context = MainFn->getContext();
++  Type *SIntTy = Type::getInt16Ty(Context);
++  Type *VoidTy = Type::getVoidTy(Context);
++  Module *M = MainFn->getParent();
++  Constant *InitFn = M->getOrInsertFunction(FnName, VoidTy,
++      SIntTy,
++      (Type *)0);
++  std::vector<Value*> Args(1);
++  Args[0] = ConstantInt::get (SIntTy, totalFuncs);
++
++  // Skip over any allocas in the entry block.
++  BasicBlock *Entry = MainFn->begin();
++  BasicBlock::iterator InsertPos = Entry->begin();
++  while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos)) ++InsertPos;
++
++  CallInst::Create(InitFn, Args, "", InsertPos);
++
++}
++
++void InsertBBAnalysisInitCall(Function * MainFn, uint16_t totalFuncs, std::vector<uint16_t> &BBCountVec){
++  LLVMContext &Context = MainFn->getContext();
++  Type *UInt16Ty = Type::getInt16Ty(Context);
++  Type *VoidTy = Type::getVoidTy(Context);
++  Module *M = MainFn->getParent();
++  Constant *InitFn = M->getOrInsertFunction("start_basic_block_call_site_tracing", 
++      VoidTy,
++      UInt16Ty,
++      (Type *)0);
++  std::vector<Value*> Args(1);
++  Args[0] = ConstantInt::get (UInt16Ty, totalFuncs);
++
++  // Skip over any allocas in the entry block.
++  BasicBlock *Entry = MainFn->begin();
++  BasicBlock::iterator InsertPos = Entry->begin();
++  while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos)) ++InsertPos;
++
++  CallInst::Create(InitFn, Args, "", InsertPos);
++  
++  Constant *SetBBCountFn = M->getOrInsertFunction("set_bb_count_for_fid", 
++      VoidTy, 
++      UInt16Ty, 
++      UInt16Ty,
++      (Type *)0);
++
++
++  uint16_t fid = 0;
++  for(std::vector<uint16_t>::iterator bb_count = BBCountVec.begin(), bb_count_end = BBCountVec.end(); bb_count!=bb_count_end ;++bb_count, ++fid){
++    std::vector<Value*> Args(2);
++    Args[0] = ConstantInt::get (UInt16Ty, fid);
++    Args[1] = ConstantInt::get(UInt16Ty, *bb_count);
++    CallInst::Create(SetBBCountFn, Args, "", InsertPos);
++  }
++	
++	Constant *InitPostBBCount = M->getOrInsertFunction("initialize_post_bb_count_data",
++			VoidTy,
++			(Type *)0);
++	
++	CallInst::Create(InitPostBBCount,"",InsertPos);
++
++}
++
++
++void InsertBBInstrumentationCall(Instruction *II,
++			       const char *FnName,
++			       short FuncNumber,
++			       short BBNumber){
++  errs() << "######################## InsertBBInstrumentationCall (\" " << II->getName ()
++	 << "\", \"" << FnName << "\", " << BBNumber << ")\n";
++  BasicBlock *BB = II->getParent();
++  Function *Fn = BB->getParent();
++  Module *M = Fn->getParent ();
++  LLVMContext &Context = Fn->getContext();
++  Type *VoidTy = Type::getVoidTy(Context);
++  Type *SIntTy = Type::getInt16Ty(Context);
++  Constant *InstrFn = M->getOrInsertFunction (FnName, VoidTy,
++                                              SIntTy, SIntTy, (Type *)0);
++  std::vector<Value*> Args (2);
++  Args[0] = ConstantInt::get (SIntTy, FuncNumber);
++  Args[1] = ConstantInt::get (SIntTy, BBNumber);                                                                                 
++
++  // Insert the call after any alloca or PHI instructions...                                                                       
++  BasicBlock::iterator InsertPos = II;
++  while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos))
++    ++InsertPos;
++
++  CallInst::Create(InstrFn, Args, "", InsertPos);
++
++}
+Index: lib/Transforms/IPO/CommonTracing.hpp
+===================================================================
+--- lib/Transforms/IPO/CommonTracing.hpp	(revision 0)
++++ lib/Transforms/IPO/CommonTracing.hpp	(revision 0)
+@@ -0,0 +1,8 @@
++#include "llvm/IR/Module.h"
++#include "llvm/IR/Constants.h"
++#include "llvm/IR/Instructions.h"
++#include "llvm/Support/CallSite.h"
++using namespace llvm;
++void InsertCodeAnalysisInitCall(Function *, const char *, short);
++void InsertBBInstrumentationCall(Instruction *II,const char *FnName,short FuncNumber, short BBNumber);
++void InsertBBAnalysisInitCall(Function * MainFn, uint16_t totalFuncs, std::vector<uint16_t> &BBCountVec);
+Index: lib/Transforms/IPO/FunctionReordering.cpp
+===================================================================
+--- lib/Transforms/IPO/FunctionReordering.cpp	(revision 0)
++++ lib/Transforms/IPO/FunctionReordering.cpp	(revision 0)
+@@ -0,0 +1,79 @@
++#include "llvm/IR/Module.h"
++#include "llvm/Pass.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Support/CommandLine.h"
++#include "llvm/Transforms/Instrumentation.h"
++#include "llvm/Transforms/IPO.h"
++#include <cstdio>
++
++using namespace llvm;
++
++namespace {
++  class FunctionReorderer : public ModulePass {
++    
++  public:
++    static char ID;
++		const char * layout_filename;
++		
++    FunctionReorderer(): ModulePass(ID){
++			initializeFunctionReordererPass(*PassRegistry::getPassRegistry());
++    }
++
++    FunctionReorderer(const char * layout_filename): ModulePass(ID){
++			this->layout_filename = layout_filename;
++			initializeFunctionReordererPass(*PassRegistry::getPassRegistry());
++    }
++
++    virtual bool runOnModule(Module &M){
++  
++      int totalFuncs=0;
++      Module::iterator F,E;
++      for (F = M.begin(), E = M.end(); F != E; ++F) {
++	if(!F->isDeclaration())
++	  totalFuncs++;
++      }
++      FILE * pFile = fopen(layout_filename,"r");
++			if(pFile==NULL){
++				errs() << "No such file:" << layout_filename << "\n";
++				exit(0);
++			}
++      
++      Function ** newFunctionList= (Function **) malloc(sizeof(Function *)*totalFuncs);
++      int * perm = (int *) malloc(sizeof(int)*totalFuncs);
++      
++      int funcNum,i=0;
++      while(i<totalFuncs && fscanf(pFile,"%d",&funcNum)!=EOF){
++	perm[funcNum]=i;
++	++i;
++      }
++      if(i!=totalFuncs){
++			errs() << "The permutation is shorter that expected: " << i << " " <<totalFuncs << "\n";
++			exit(0);
++	}
++      
++      for (F = M.begin(), E = M.end(), i=0; F != E; ++F) {
++	if(!F->isDeclaration())
++	  newFunctionList[perm[i++]]=F;
++      }
++      
++      for(i=0;i<totalFuncs;++i){
++	M.getFunctionList().remove(newFunctionList[i]);
++      }
++      for(i=0;i<totalFuncs; ++i){
++	M.getFunctionList().push_back(newFunctionList[i]);
++      }
++
++      return true;
++    }
++    
++
++  };
++  
++}
++
++char FunctionReorderer::ID = 0;
++INITIALIZE_PASS (FunctionReorderer,"reorder-functions","Reorders Functions According to a Permutation File Provided in the Environment Variable PERM_FILE",false,false)
++
++ModulePass *llvm::createFunctionReordererPass(const char * layout_filename){
++	return new FunctionReorderer(layout_filename);
++}
+Index: lib/Transforms/IPO/CallSiteTracing.cpp
+===================================================================
+--- lib/Transforms/IPO/CallSiteTracing.cpp	(revision 0)
++++ lib/Transforms/IPO/CallSiteTracing.cpp	(revision 0)
+@@ -0,0 +1,340 @@
++#include "CommonTracing.hpp"
++#include "llvm/Pass.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Transforms/Utils/BasicBlockUtils.h"
++#include "llvm/Transforms/Instrumentation.h"
++#include "llvm/Transforms/IPO.h"
++#include "llvm/Support/CallSite.h"
++#include "llvm/Transforms/Utils/Cloning.h"
++#include <cstdio>
++using namespace llvm;
++
++namespace {
++  class FunctionCallSiteTracer : public ModulePass {
++    bool runOnModule(Module &M);
++  public:
++    static char ID;
++
++    FunctionCallSiteTracer(): ModulePass(ID){
++			initializeFunctionCallSiteTracerPass(*PassRegistry::getPassRegistry());
++		}
++
++    virtual const char * getPassName() const{
++      return "Call Site Tracer at Function Level";
++    }
++  };
++  
++}
++
++char FunctionCallSiteTracer::ID = 0;
++INITIALIZE_PASS (FunctionCallSiteTracer,"trace-call-sites-func-level","Insert instrumentation for function tracing", false, false)
++
++ModulePass *llvm::createFunctionCallSiteTracerPass(){
++	return new FunctionCallSiteTracer();
++}
++
++namespace {
++  class BasicBlockCallSiteTracer : public ModulePass {
++    bool runOnModule(Module &M);
++  public:
++    static char ID;
++    BasicBlockCallSiteTracer(): ModulePass(ID){
++			initializeBasicBlockCallSiteTracerPass(*PassRegistry::getPassRegistry());
++		}
++
++    virtual const char * getPassName() const{
++      return "Call Site Tracer at Basic Block Level";
++    }
++  };
++  
++}
++
++char BasicBlockCallSiteTracer::ID = 0;
++INITIALIZE_PASS (BasicBlockCallSiteTracer,"trace-call-sites-bb-level","Insert instrumentation for basic block tracing", false, false)
++
++ModulePass *llvm::createBasicBlockCallSiteTracerPass(){
++	return new BasicBlockCallSiteTracer();
++}
++
++
++namespace {
++  class BurstyCallSiteTracer : public ModulePass {
++    bool runOnModule(Module &M);
++  public:
++    static char ID;
++    BurstyCallSiteTracer(): ModulePass(ID){}
++
++    virtual const char * getPassName() const{
++      return "Bursty Call Site Tracer";
++    }
++  };
++  
++}
++
++char BurstyCallSiteTracer::ID = 0;
++//RegisterPass<BurstyCallSiteTracer> Y("bursty-trace-call-sites","Insert instrumentation for basic block tracing", false, false);
++
++
++
++
++void InsertInstrumentationCall(Instruction *II,
++			       const char *FnName,
++			       short FuncNumber,
++			       unsigned BBNumber){
++  errs() << "######################## InsertInstrumentationCall (\" " << II->getName ()
++	 << "\", \"" << FnName << "\", " << BBNumber << ")\n";
++  BasicBlock *BB = II->getParent();
++  Function *Fn = BB->getParent();
++  Module *M = Fn->getParent ();
++  LLVMContext &Context = Fn->getContext();
++  Type *VoidTy = Type::getVoidTy(Context);
++  Type *SIntTy = Type::getInt16Ty(Context);
++  Constant *InstrFn = M->getOrInsertFunction (FnName, VoidTy,
++                                              SIntTy, (Type *)0);
++  std::vector<Value*> Args (1);
++  Args[0] = ConstantInt::get (SIntTy, FuncNumber);
++  //Args[1] = ConstantInt::get (UIntTy, BBNumber);                                                                                 
++
++  // Insert the call after any alloca or PHI instructions...                                                                       
++  BasicBlock::iterator InsertPos = II;
++  while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos))
++    ++InsertPos;
++
++  CallInst::Create(InstrFn, Args, "", InsertPos);
++
++}
++
++
++
++
++void InsertInstrumentationCall (BasicBlock *BB, 
++				const char *FnName,
++				short FuncNumber,
++				unsigned BBNumber) {
++  errs() << "InsertInstrumentationCall (\"" << BB->getName ()
++                  << "\", \"" << FnName << "\", " << BBNumber << ")\n";
++  Function *Fn = BB->getParent();
++  Module *M = Fn->getParent ();
++  LLVMContext &Context = Fn->getContext();
++  Type *VoidTy = Type::getVoidTy(Context);
++  Type *SIntTy = Type::getInt16Ty(Context);
++  Constant *InstrFn = M->getOrInsertFunction (FnName, VoidTy,
++					      SIntTy, (Type *)0);
++  std::vector<Value*> Args (1);
++  Args[0] = ConstantInt::get (SIntTy, FuncNumber);
++  //Args[1] = ConstantInt::get (UIntTy, BBNumber);
++
++  // Insert the call after any alloca or PHI instructions...
++  BasicBlock::iterator InsertPos = BB->begin();
++  while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos))
++    ++InsertPos;
++
++  CallInst::Create(InstrFn, Args, "", InsertPos);
++}
++
++void InsertSwitchCall ( Function * original, Function * profiling, short FuncNumber){
++
++  Module * M = original->getParent();
++  LLVMContext &Context = original->getContext(); 
++  Type *SIntTy = Type::getInt16Ty(Context);
++
++  std::vector<Value*> Args (1);
++  Args[0] = ConstantInt::get (SIntTy,FuncNumber);
++
++  Constant *getSwitchFn = M->getOrInsertFunction ("get_switch", Type::getInt8Ty(Context), SIntTy, (Type *) 0);
++
++  BasicBlock * oldEntry = original->begin();
++
++  BasicBlock * newEntry = BasicBlock::Create(Context, "entry", original, oldEntry);
++
++
++  //BasicBlock * BB = original->begin();
++  // Insert the call after any alloca or PHI instructions...
++  //BasicBlock::iterator InsertPos = newEntry->begin();
++  //while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos))
++  //  ++InsertPos;
++  CallInst * prof_switch = CallInst::Create(getSwitchFn, Args, "get.profiling.switch", newEntry);
++
++  Constant* zero = ConstantInt::get(Type::getInt8Ty(Context),0);
++  Value * cmp = new ICmpInst(*newEntry, ICmpInst::ICMP_NE, prof_switch, zero, "cmp.with.zero");
++
++
++  //BasicBlock * ifFalse = BasicBlock::Create(Context, "if prof_switch is zero", original, newEntry);
++  BasicBlock * ifTrue = BasicBlock::Create(Context, "switch.is.zero", original, oldEntry);
++
++  BranchInst::Create(ifTrue, oldEntry, cmp, newEntry);
++
++  errs() << "function is "<< original->getName() << "\n";
++  std::vector<Value *> prof_call_args;
++  for(Function::arg_iterator arg=original->arg_begin(), end = original->arg_end(); arg != end; arg++) {
++    prof_call_args.push_back((Argument *)arg);
++    errs() << (Argument *)arg << "\n";
++  }
++  errs() << original->arg_size() << "\t" << prof_call_args.size() << "\n";
++
++
++  CallInst * prof_call = CallInst::Create(profiling,prof_call_args, "",ifTrue);
++  //prof_call->setCallingConv(original->getCallingConv());
++  if(original->getReturnType()!= Type::getVoidTy(Context))
++    ReturnInst::Create(Context, prof_call, ifTrue);
++  else
++    ReturnInst::Create(Context, ifTrue);
++}
++
++
++bool FunctionCallSiteTracer::runOnModule(Module &M) {
++  Function *Main = M.getFunction("main");
++  if (Main == 0) {
++    errs() << "WARNING: cannot insert basic-block trace instrumentatiom "
++	   << "into a module with no main function!\n";
++    return false;  // No main, no instrumentation!
++  }
++
++
++  unsigned BBNumber = 0;
++  short FuncNumber = 0;
++  for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F){
++    
++    if(!F->isDeclaration()){
++
++      InsertInstrumentationCall (F->begin(), "record_function_exec", FuncNumber, BBNumber);
++      for (Function::iterator BB = F->begin(), E = F->end(); BB != E; ++BB) {
++	for (BasicBlock::iterator II = BB->begin(), E= BB->end(); II != E; ++II){
++	  CallSite CS(cast<Value>(II));
++	  if (CS) {
++	    const Function *Callee = CS.getCalledFunction();
++	    //	    errs() << Callee->getName() <<" "<< Callee->isDeclaration() << "\n";
++	    if (Callee && !Callee->isDeclaration()){
++	      ++II;
++	      if(II!=E)
++		InsertInstrumentationCall(II, "record_function_exec", FuncNumber, BBNumber);
++	      --II;
++	    }
++	  }
++	}
++	++BBNumber;
++      }
++      
++
++
++      ++FuncNumber;
++    }
++  }
++
++
++  // Add the initialization call to main.
++  InsertCodeAnalysisInitCall(Main,"start_call_site_tracing", FuncNumber); 
++  return true;
++}
++
++bool BasicBlockCallSiteTracer::runOnModule(Module &M){
++  Function *Main = M.getFunction("main");
++  if (Main == 0) {
++    errs() << "WARNING: cannot insert trace instrumentatiom "
++	   << "into a module with no main function!\n";
++    return false;  // No main, no instrumentation!
++  }
++  
++  uint16_t bbid = 0;
++  uint16_t fid = 0;
++  std::vector<uint16_t> bb_count_vec;
++  for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F){
++    bbid = 0;
++    if(!F->isDeclaration()){
++
++      for (Function::iterator BB = F->begin(), E = F->end(); BB != E; ++BB) {
++        InsertBBInstrumentationCall(BB->begin(), "record_function_exec",fid,bbid); 
++	for (BasicBlock::iterator II = BB->begin(), E= BB->end(); II != E; ++II){
++	  CallSite CS(cast<Value>(II));
++	  if (CS) {
++	    const Function *Callee = CS.getCalledFunction();
++	    //	    errs() << Callee->getName() <<" "<< Callee->isDeclaration() << "\n";
++	    if (Callee && !Callee->isDeclaration()){
++	      ++II;
++	      if(II!=E)
++		InsertBBInstrumentationCall(II, "record_function_exec", fid, bbid);
++	      --II;
++	    }
++	  }
++	}
++	++bbid;
++      }
++      bb_count_vec.push_back(bbid);
++
++      ++fid;
++    }
++  }
++
++
++  // Add the initialization call to main.
++  InsertBBAnalysisInitCall(Main,fid,bb_count_vec);
++  return true;
++
++
++}
++
++bool BurstyCallSiteTracer::runOnModule(Module &M) {
++  Function *Main = M.getFunction("main");
++  if (Main == 0) {
++    errs() << "WARNING: cannot insert basic-block trace instrumentatiom "
++	   << "into a module with no main function!\n";
++    return false;  // No main, no instrumentation!
++  }
++
++
++  unsigned BBNumber = 0;
++  short FuncNumber = 0;
++  FILE * funcMapFile=fopen("functionMapping.txt","w");
++  for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F){
++    
++    if(!F->isDeclaration()){
++	if(!F->isVarArg()){
++      fprintf(funcMapFile,"%s\t%d\n",F->getName().data(),FuncNumber);
++      //Clone the function
++      ValueToValueMapTy mapTy;
++      mapTy.clear();
++      Function * prof_F = CloneFunction(F,mapTy,false);
++
++      //Set the name of the profiling function
++      prof_F->setName("_prof_" + F->getName());
++	//Set calling convention equal to the original's calling convention
++	//prof_F->setCallingConv(F->getCallingConv());
++	prof_F->setAttributes(F->getAttributes());
++        prof_F->setLinkage(F->getLinkage());
++	//prof_F->addFnAttr(llvm::Attribute::AlwaysInline);
++      //insert instrumented copy of the function at the beginning
++	
++
++      M.getFunctionList().push_front(prof_F);
++      InsertInstrumentationCall (prof_F->begin(), "llvm_trace_basic_block", FuncNumber, BBNumber);
++      for (Function::iterator BB = prof_F->begin(), E = prof_F->end(); BB != E; ++BB) {
++	for (BasicBlock::iterator II = BB->begin(), E= BB->end(); II != E; ++II){
++	  CallSite CS(cast<Value>(II));
++	  if (CS) {
++	    const Function *Callee = CS.getCalledFunction();
++	    //	    errs() << Callee->getName() <<" "<< Callee->isDeclaration() << "\n";
++	    if (Callee && !Callee->isDeclaration()){
++	      ++II;
++	      if(II!=E)
++		InsertInstrumentationCall(II, "llvm_trace_basic_block", FuncNumber, BBNumber);
++	      --II;
++	    }
++	  }
++	}
++	++BBNumber;
++      }
++      
++
++
++      InsertSwitchCall(F,prof_F, FuncNumber);
++	}
++      ++FuncNumber;
++    }
++  }
++  fclose(funcMapFile);
++
++
++  // Add the initialization call to main.
++  InsertCodeAnalysisInitCall(Main,"llvm_init_affinity_analysis", FuncNumber); 
++  return true;
++}
+Index: lib/Transforms/IPO/CallEdgeTracing.cpp
+===================================================================
+--- lib/Transforms/IPO/CallEdgeTracing.cpp	(revision 0)
++++ lib/Transforms/IPO/CallEdgeTracing.cpp	(revision 0)
+@@ -0,0 +1,120 @@
++#include "CommonTracing.hpp"
++#include "llvm/Pass.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Transforms/Utils/BasicBlockUtils.h"
++#include "llvm/Transforms/Instrumentation.h"
++#include "llvm/Transforms/IPO.h"
++#include "llvm/Support/CallSite.h"
++#include "llvm/Transforms/Utils/Cloning.h"
++using namespace llvm;
++
++namespace {
++  class CallEdgeTracer : public ModulePass {
++    bool runOnModule(Module &M);
++  public:
++    static char ID;
++    
++		CallEdgeTracer(): ModulePass(ID){
++			initializeCallEdgeTracerPass(*PassRegistry::getPassRegistry());
++		}
++
++    virtual const char * getPassName() const{
++      return "Call Edge Tracer";
++    }
++  };
++  
++}
++
++char CallEdgeTracer::ID = 0;
++INITIALIZE_PASS (CallEdgeTracer,"trace-call-edges","Profiles calls and releases a layout", false, false)
++
++ModulePass *llvm::createCallEdgeTracerPass(){
++	return new CallEdgeTracer();
++}
++
++
++void InsertInstrumentationCall(Instruction *II,
++			       const char *FnName,
++			       short Caller,
++			       short Callee,
++			       unsigned BBNumber){
++  errs() << "######################## InsertInstrumentationCall (\" " << II->getName ()
++	 << "\", \"" << FnName << "\", " << BBNumber << ")\n";
++  BasicBlock *BB = II->getParent();
++  Function *Fn = BB->getParent();
++  Module *M = Fn->getParent ();
++  LLVMContext &Context = Fn->getContext();
++  Type *VoidTy = Type::getVoidTy(Context);
++  Type *SIntTy = Type::getInt16Ty(Context);
++  Constant *InstrFn = M->getOrInsertFunction (FnName, VoidTy,
++                                              SIntTy, SIntTy, (Type *)0);
++  std::vector<Value*> Args (2);
++  Args[0] = ConstantInt::get (SIntTy, Caller);
++  Args[1] = ConstantInt::get (SIntTy, Callee);
++  //Args[1] = ConstantInt::get (UIntTy, BBNumber);                                                                                 
++
++  // Insert the call after any alloca or PHI instructions...                                                                       
++  BasicBlock::iterator InsertPos = II;
++  while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos))
++    ++InsertPos;
++
++  CallInst::Create(InstrFn, Args, "", InsertPos);
++
++}
++
++
++
++bool CallEdgeTracer::runOnModule(Module &M) {
++  Function *Main = M.getFunction("main");
++  if (Main == 0) {
++    errs() << "WARNING: cannot insert basic-block trace instrumentatiom "
++	   << "into a module with no main function!\n";
++    return false;  // No main, no instrumentation!
++  }
++
++  std::map <std::string, int> func_ids;
++
++  short FuncNumber = 0;
++  for(Module::iterator F= M.begin(), E=M.end(); F!=E; ++F){
++  	if(!F->isDeclaration())
++		func_ids[F->getName().str()]=FuncNumber++;
++		
++  }
++
++
++  unsigned BBNumber = 0;
++  FuncNumber = 0;
++  for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F){
++    
++    if(!F->isDeclaration()){
++
++      for (Function::iterator BB = F->begin(), E = F->end(); BB != E; ++BB) {
++	for (BasicBlock::iterator II = BB->begin(), E= BB->end(); II != E; ++II){
++	  CallSite CS(cast<Value>(II));
++	  if (CS) {
++	    const Function *Callee = CS.getCalledFunction();
++	    //	    errs() << Callee->getName() <<" "<< Callee->isDeclaration() << "\n";
++	    if (Callee && !Callee->isDeclaration()){
++	      ++II;
++	      if(II!=E)
++		InsertInstrumentationCall(II, "trace_call_edge", FuncNumber, 
++					func_ids[Callee->getName().str()],BBNumber);
++	      --II;
++	    }
++	  }
++	}
++	++BBNumber;
++      }
++      
++
++
++      ++FuncNumber;
++    }
++  }
++
++
++  // Add the initialization call to main.
++  InsertCodeAnalysisInitCall(Main,"do_init", FuncNumber); 
++  return true;
++}
++
+Index: lib/Transforms/IPO/PassManagerBuilder.cpp
+===================================================================
+--- lib/Transforms/IPO/PassManagerBuilder.cpp	(revision 197552)
++++ lib/Transforms/IPO/PassManagerBuilder.cpp	(working copy)
+@@ -12,7 +12,7 @@
+ //
+ //===----------------------------------------------------------------------===//
+ 
+-
++#include "llvm/Support/raw_ostream.h"
+ #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+ #include "llvm-c/Transforms/PassManagerBuilder.h"
+ #include "llvm/ADT/SmallVector.h"
+@@ -23,6 +23,7 @@
+ #include "llvm/Support/ManagedStatic.h"
+ #include "llvm/Target/TargetLibraryInfo.h"
+ #include "llvm/Transforms/IPO.h"
++#include "llvm/Transforms/Instrumentation.h"
+ #include "llvm/Transforms/Scalar.h"
+ #include "llvm/Transforms/Vectorize.h"
+ 
+@@ -53,6 +54,24 @@
+ RunLoopRerolling("reroll-loops", cl::Hidden,
+                  cl::desc("Run the loop rerolling pass"));
+ 
++//added by rlavaee
++static cl::opt<bool> EnableWindowCSInstrument("enable-window-callsite-inst", cl::Hidden,
++      cl::desc("Instruments IR Basic Blocks After IR Optimizations"));
++
++static cl::opt<bool> EnableCEInstrument("enable-calledge-inst", cl::Hidden,
++      cl::desc("Instruments IR Basic Blocks After IR Optimizations"));
++
++static cl::opt<bool> EnableBBInstrument("enable-bb-callsite-inst", cl::Hidden,
++      cl::desc("Instruments IR Basic Blocks After IR Optimizations"));
++
++static cl::opt<bool> EnableFuncInstrument("enable-func-callsite-inst", cl::Hidden,
++      cl::desc("Instruments CallSites After IR Optimizations at function granularity"));
++static cl::opt<std::string> FuncReorderingLayout("func-reorder-layout", cl::Hidden,
++			cl::desc("Reorders Functions Based on a Permutation File"));
++
++static cl::opt<bool> EnableCacheCounting("enable-cache-counting-inst", cl::Hidden,
++			cl::desc("Instruments with intel cache counting counters"));
++
+ PassManagerBuilder::PassManagerBuilder() {
+     OptLevel = 2;
+     SizeLevel = 0;
+@@ -341,6 +360,31 @@
+ 
+   // Now that we have optimized the program, discard unreachable functions.
+   PM.add(createGlobalDCEPass());
++	
++	//rlavaee
++	// If asked, instrument entries only (call edge)
++	if(EnableCEInstrument){
++	 	PM.add(createCallEdgeTracerPass());
++	}
++	// If asked, instrument every basic block
++	 if(EnableBBInstrument){
++	 	PM.add(createBasicBlockCallSiteTracerPass());
++	}
++	
++	// If asked, instrument every func callsite
++	 if(EnableFuncInstrument){
++	 	PM.add(createFunctionCallSiteTracerPass());
++	}
++	
++	// If asked, do the function reordering after all passes
++	 if(!FuncReorderingLayout.empty()){
++	 	PM.add(createFunctionReordererPass(FuncReorderingLayout.c_str()));
++	}
++
++	// If asked, instrument cache counting
++	 if(EnableCacheCounting){
++	 	PM.add(createInstCacheCountingPass());
++	}
+ }
+ 
+ inline PassManagerBuilder *unwrap(LLVMPassManagerBuilderRef P) {
+Index: lib/Transforms/IPO/CacheCounting.cpp
+===================================================================
+--- lib/Transforms/IPO/CacheCounting.cpp	(revision 0)
++++ lib/Transforms/IPO/CacheCounting.cpp	(revision 0)
+@@ -0,0 +1,71 @@
++#include "llvm/IR/Module.h"
++#include "llvm/IR/Constants.h"
++#include "llvm/IR/Instructions.h"
++#include "llvm/Pass.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Support/CommandLine.h"
++#include "llvm/Transforms/Utils/BasicBlockUtils.h"
++#include "llvm/Transforms/Instrumentation.h"
++#include "llvm/Transforms/IPO.h"
++using namespace llvm;
++
++cl::opt<int>
++AvailCounters("avail-counters",
++                 cl::desc("Number of available hardware counters"),
++                 cl::init(4));
++
++void InsertInitCacheCountersCall(Function * MainFn, const char *FnName){
++  Module *M = MainFn->getParent();
++  LLVMContext &Context = M->getContext();
++  Type *VoidTy = Type::getVoidTy(Context);
++  Type *IntTy = Type::getInt32Ty(Context);
++  Constant *InitFn = M->getOrInsertFunction(FnName, VoidTy,
++																						IntTy,
++                                           (Type *)0);	
++  std::vector<Value*> Args(1);
++  Args[0]=ConstantInt::get(IntTy,AvailCounters);
++  // Skip over any allocas in the entry block.
++  BasicBlock *Entry = MainFn->begin();
++  BasicBlock::iterator InsertPos = Entry->begin();
++  while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos)) ++InsertPos;
++  CallInst::Create(InitFn, Args,"", InsertPos);
++}
++
++namespace {
++  class InstCacheCounting : public ModulePass {
++  public:
++		static char ID;
++    InstCacheCounting(): ModulePass(ID){
++			initializeInstCacheCountingPass(*PassRegistry::getPassRegistry());
++		}
++    bool runOnModule(Module &M);
++		
++  };
++
++}
++
++
++INITIALIZE_PASS (InstCacheCounting,"add-inst-cache-counters","adds instruction cache counters",false,false)
++char InstCacheCounting::ID=0;
++
++
++
++
++bool InstCacheCounting::runOnModule(Module &M) {
++  Function *Main = M.getFunction("main");
++  if (Main == 0) {
++    errs() << "WARNING: cannot insert basic-block trace instrumentatiom "
++	   << "into a module with no main function!\n";
++    return false;  // No main, no instrumentation!
++  }
++
++
++  // Add the initialization call to main.
++  InsertInitCacheCountersCall(Main,"init_cache_counters"); 
++  return true;
++}
++
++
++ModulePass *llvm::createInstCacheCountingPass(){
++	return new InstCacheCounting();
++}
+Index: include/llvm/LinkAllPasses.h
+===================================================================
+--- include/llvm/LinkAllPasses.h	(revision 197552)
++++ include/llvm/LinkAllPasses.h	(working copy)
+@@ -155,6 +155,12 @@
+       (void) llvm::createBBVectorizePass();
+       (void) llvm::createPartiallyInlineLibCallsPass();
+       (void) llvm::createScalarizerPass();
++			//added by rlavaee
++			(void) llvm::createCallEdgeTracerPass();
++			(void) llvm::createBasicBlockCallSiteTracerPass();
++			(void) llvm::createFunctionCallSiteTracerPass();
++			(void) llvm::createFunctionReordererPass("");
++			(void) llvm::createInstCacheCountingPass();
+ 
+       (void)new llvm::IntervalPartition();
+       (void)new llvm::FindUsedTypes();
+Index: include/llvm/Transforms/Instrumentation.h
+===================================================================
+--- include/llvm/Transforms/Instrumentation.h	(revision 197552)
++++ include/llvm/Transforms/Instrumentation.h	(working copy)
+@@ -127,6 +127,7 @@
+ ///       seen by the debugger.
+ ModulePass *createDebugIRPass();
+ 
++
+ } // End llvm namespace
+ 
+ #endif
+Index: include/llvm/Transforms/IPO.h
+===================================================================
+--- include/llvm/Transforms/IPO.h	(revision 197552)
++++ include/llvm/Transforms/IPO.h	(working copy)
+@@ -198,6 +198,13 @@
+ /// manager.
+ ModulePass *createBarrierNoopPass();
+ 
++//added by rlavaee
++ModulePass *createCallEdgeTracerPass();
++ModulePass *createBasicBlockCallSiteTracerPass();
++ModulePass *createFunctionCallSiteTracerPass();
++ModulePass *createFunctionReordererPass(const char *);
++ModulePass *createInstCacheCountingPass();
++
+ } // End llvm namespace
+ 
+ #endif
+Index: include/llvm/InitializePasses.h
+===================================================================
+--- include/llvm/InitializePasses.h	(revision 197552)
++++ include/llvm/InitializePasses.h	(working copy)
+@@ -267,6 +267,12 @@
+ void initializeBBVectorizePass(PassRegistry&);
+ void initializeMachineFunctionPrinterPassPass(PassRegistry&);
+ void initializeStackMapLivenessPass(PassRegistry&);
++//added by rlavaee
++void initializeCallEdgeTracerPass(PassRegistry&);
++void initializeBasicBlockCallSiteTracerPass(PassRegistry&);
++void initializeFunctionCallSiteTracerPass(PassRegistry&);
++void initializeFunctionReordererPass(PassRegistry&);
++void initializeInstCacheCountingPass(PassRegistry&);
+ }
+ 
+ #endif

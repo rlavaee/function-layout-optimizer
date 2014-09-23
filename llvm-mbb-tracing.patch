@@ -1,0 +1,273 @@
+Index: include/llvm/Support/TargetRegistry.h
+===================================================================
+--- include/llvm/Support/TargetRegistry.h	(revision 218178)
++++ include/llvm/Support/TargetRegistry.h	(working copy)
+@@ -26,6 +26,7 @@
+ #include <string>
+ 
+ namespace llvm {
++	class MachineFunctionPass;
+   class AsmPrinter;
+   class Module;
+   class MCAssembler;
+@@ -103,6 +104,10 @@
+                                                   CodeGenOpt::Level OL);
+     typedef AsmPrinter *(*AsmPrinterCtorTy)(TargetMachine &TM,
+                                             MCStreamer &Streamer);
++
++		// rlavaee
++		typedef MachineFunctionPass *(*MBBTracingCtorTy) (TargetMachine &TM);
++
+     typedef MCAsmBackend *(*MCAsmBackendCtorTy)(const Target &T,
+                                                 const MCRegisterInfo &MRI,
+                                                 StringRef TT,
+@@ -207,6 +212,10 @@
+     /// if registered.
+     AsmPrinterCtorTy AsmPrinterCtorFn;
+ 
++
++		/// rlavaee
++		MBBTracingCtorTy MBBTracingCtorFn;
++
+     /// MCDisassemblerCtorFn - Construction function for this target's
+     /// MCDisassembler, if registered.
+     MCDisassemblerCtorTy MCDisassemblerCtorFn;
+@@ -381,6 +390,14 @@
+       return AsmPrinterCtorFn(TM, Streamer);
+     }
+ 
++
++		/// rlavaee
++		MachineFunctionPass *createMBBTracingPass(TargetMachine &TM) const{
++			if (!MBBTracingCtorFn)
++				return 0;
++			return MBBTracingCtorFn(TM);
++		}
++
+     MCDisassembler *createMCDisassembler(const MCSubtargetInfo &STI) const {
+       if (!MCDisassemblerCtorFn)
+         return 0;
+@@ -715,6 +732,12 @@
+       T.AsmPrinterCtorFn = Fn;
+     }
+ 
++
++		/// rlavaee
++		static void RegisterMBBTracing(Target &T, Target::MBBTracingCtorTy Fn) {
++			T.MBBTracingCtorFn = Fn;
++		}
++
+     /// RegisterMCDisassembler - Register a MCDisassembler implementation for
+     /// the given target.
+     ///
+@@ -1132,6 +1155,20 @@
+     }
+   };
+ 
++	//rlavaee
++	template<class MBBTracingImpl>
++  struct RegisterMBBTracing {
++    RegisterMBBTracing(Target &T) {
++      TargetRegistry::RegisterMBBTracing(T, &Allocator);
++    }
++
++  private:
++    static MachineFunctionPass *Allocator(TargetMachine &TM) {
++      return new MBBTracingImpl(TM);
++    }
++  };
++
++
+   /// RegisterMCCodeEmitter - Helper template for registering a target specific
+   /// machine code emitter, for use in the target initialization
+   /// function. Usage:
+Index: include/llvm/Support/TargetSelect.h
+===================================================================
+--- include/llvm/Support/TargetSelect.h	(revision 218178)
++++ include/llvm/Support/TargetSelect.h	(working copy)
+@@ -34,6 +34,8 @@
+ #define LLVM_ASM_PRINTER(TargetName) void LLVMInitialize##TargetName##AsmPrinter();
+ #include "llvm/Config/AsmPrinters.def"
+ 
++void LLVMInitializeX86MBBTracing();
++
+   // Declare all of the available assembly parser initialization functions.
+ #define LLVM_ASM_PARSER(TargetName) void LLVMInitialize##TargetName##AsmParser();
+ #include "llvm/Config/AsmParsers.def"
+Index: include/llvm-c/Target.h
+===================================================================
+--- include/llvm-c/Target.h	(revision 218178)
++++ include/llvm-c/Target.h	(working copy)
+@@ -42,6 +42,9 @@
+ typedef struct LLVMOpaqueTargetData *LLVMTargetDataRef;
+ typedef struct LLVMOpaqueTargetLibraryInfotData *LLVMTargetLibraryInfoRef;
+ 
++//rlavaee
++void LLVMInitializeX86MBBTracing(void);
++
+ /* Declare all of the target-initialization functions that are available. */
+ #define LLVM_TARGET(TargetName) \
+   void LLVMInitialize##TargetName##TargetInfo(void);
+Index: lib/CodeGen/LLVMTargetMachine.cpp
+===================================================================
+--- lib/CodeGen/LLVMTargetMachine.cpp	(revision 218178)
++++ lib/CodeGen/LLVMTargetMachine.cpp	(working copy)
+@@ -53,6 +53,7 @@
+ AsmVerbose("asm-verbose", cl::desc("Add comments to directives."),
+            cl::init(cl::BOU_UNSET));
+ 
++
+ static bool getVerboseAsm() {
+   switch (AsmVerbose) {
+   case cl::BOU_UNSET: return TargetMachine::getAsmVerbosityDefault();
+@@ -131,8 +132,24 @@
+ 
+   PassConfig->addMachinePasses();
+ 
+-  PassConfig->setInitialized();
+ 
++/*
++	if(EnableMBBTracing){
++		MachineFunctionPass * tracing = TM->getTarget().createMBBTracingPass(*TM);
++		if(tracing==0)
++			assert(false && "constructor is not set");
++		else{
++			PM.add(tracing);
++		}
++		
++	}
++
++	PassConfig->addMachinePassesAfterMBBTracing();
++	*/
++  
++	PassConfig->setInitialized();
++	
++
+   return &MMI->getContext();
+ }
+ 
+@@ -145,6 +162,9 @@
+   // Add common CodeGen passes.
+   MCContext *Context = addPassesToGenerateCode(this, PM, DisableVerify,
+                                                StartAfter, StopAfter);
++	
++		
++
+   if (!Context)
+     return true;
+ 
+@@ -216,7 +236,9 @@
+   }
+ 
+   // Create the AsmPrinter, which takes ownership of AsmStreamer if successful.
++  errs() << "Creating the printer\n";
+   FunctionPass *Printer = getTarget().createAsmPrinter(*this, *AsmStreamer);
++  //errs() << "Before adding the streamer:\t" << PM.getAsPMDataManager->getNumContainedPasses()<<"\n-----\n";
+   if (Printer == 0)
+     return true;
+ 
+@@ -224,6 +246,7 @@
+   AsmStreamer.take();
+ 
+   PM.add(Printer);
++  //errs() << "After adding the streamer:\t" << PM.getAsPMDataManager->getNumContainedPasses()<<"\n-----\n";
+ 
+   return false;
+ }
+Index: lib/CodeGen/Passes.cpp
+===================================================================
+--- lib/CodeGen/Passes.cpp	(revision 218178)
++++ lib/CodeGen/Passes.cpp	(working copy)
+@@ -27,9 +27,13 @@
+ #include "llvm/Target/TargetLowering.h"
+ #include "llvm/Target/TargetSubtargetInfo.h"
+ #include "llvm/Transforms/Scalar.h"
++#include "llvm/Support/TargetRegistry.h"
+ 
+ using namespace llvm;
+ 
++// rlavaee: enable machine block profiling
++static cl::opt<bool> EnableMBBTracing("enable-machine-block-tracing",cl::Hidden,
++    cl::desc("Enable Machine Block Tracing Instrumentation"));
+ static cl::opt<bool> DisablePostRA("disable-post-ra", cl::Hidden,
+     cl::desc("Disable Post Regalloc"));
+ static cl::opt<bool> DisableBranchFold("disable-branch-fold", cl::Hidden,
+@@ -534,6 +538,14 @@
+   if (getOptLevel() != CodeGenOpt::None)
+     addBlockPlacement();
+ 
++	if(EnableMBBTracing){
++		MachineFunctionPass * tracing = TM->getTarget().createMBBTracingPass(*TM);
++		if(tracing==0)
++			assert(false && "constructor is not set");
++		else
++			addPass(tracing);
++	}
++
+   if (addPreEmitPass())
+     printAndVerify("After PreEmit passes");
+ }
+Index: lib/LTO/LTOCodeGenerator.cpp
+===================================================================
+--- lib/LTO/LTOCodeGenerator.cpp	(revision 218178)
++++ lib/LTO/LTOCodeGenerator.cpp	(working copy)
+@@ -476,26 +476,33 @@
+ 
+   PassManager codeGenPasses;
+ 
++  PassManager codeEmitterPass;
++
+   codeGenPasses.add(new DataLayout(*TargetMach->getDataLayout()));
+   TargetMach->addAnalysisPasses(codeGenPasses);
+ 
+   formatted_raw_ostream Out(out);
+ 
++  codeEmitterPass.add(new DataLayout(*TargetMach->getDataLayout()));
++
+   // If the bitcode files contain ARC code and were compiled with optimization,
+   // the ObjCARCContractPass must be run, so do it unconditionally here.
+   codeGenPasses.add(createObjCARCContractPass());
+ 
+-  if (TargetMach->addPassesToEmitFile(codeGenPasses, Out,
++  if (TargetMach->addPassesToEmitFile(codeEmitterPass, Out,
+                                       TargetMachine::CGFT_ObjectFile)) {
+     errMsg = "target file type not supported";
+     return false;
+   }
+ 
++  //TargetMach->addAnalysisPasses(codeGenPasses);
++
+   // Run our queue of passes all at once now, efficiently.
+   passes.run(*mergedModule);
+ 
+   // Run the code generator, and write assembly file
+   codeGenPasses.run(*mergedModule);
++  codeEmitterPass.run(*mergedModule);
+ 
+   return true;
+ }
+Index: lib/Target/X86/CMakeLists.txt
+===================================================================
+--- lib/Target/X86/CMakeLists.txt	(revision 218178)
++++ lib/Target/X86/CMakeLists.txt	(working copy)
+@@ -34,6 +34,7 @@
+   X86TargetTransformInfo.cpp
+   X86VZeroUpper.cpp
+   X86FixupLEAs.cpp
++  MBBTracing.cpp
+   )
+ 
+ if( CMAKE_CL_64 )
+Index: tools/lto/lto.cpp
+===================================================================
+--- tools/lto/lto.cpp	(revision 218178)
++++ tools/lto/lto.cpp	(working copy)
+@@ -52,6 +52,8 @@
+     LLVMInitializeAllAsmParsers();
+     LLVMInitializeAllAsmPrinters();
+     LLVMInitializeAllDisassemblers();
++		//rlavaee
++		LLVMInitializeX86MBBTracing();
+     initialized = true;
+   }
+ }
