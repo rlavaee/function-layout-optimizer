@@ -258,6 +258,120 @@ Index: lib/Target/X86/CMakeLists.txt
    )
  
  if( CMAKE_CL_64 )
+Index: lib/Target/X86/MBBTracing.cpp
+===================================================================
+--- lib/Target/X86/MBBTracing.cpp	(revision 0)
++++ lib/Target/X86/MBBTracing.cpp	(working copy)
+@@ -0,0 +1,109 @@
++#include "llvm/CodeGen/MachineFunctionPass.h"
++#include "llvm/CodeGen/MachineFunction.h"
++//#include "llvm/CodeGen/MachineRegisterInfo.h"
++//#include "llvm/Target/TargetRegisterInfo.h"
++//#include "llvm/Target/TargetMachine.h"
++#include "llvm/CodeGen/Passes.h"
++#include "llvm/Support/Debug.h"
++#include "llvm/Support/raw_ostream.h"
++#include "X86.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "X86InstrInfo.h"
++#include "llvm/Support/TargetRegistry.h"
++#include "llvm/Target/TargetOptions.h"
++#include "X86Subtarget.h"
++#include "llvm/CodeGen/MachineRegisterInfo.h"
++#include "llvm/Target/TargetLowering.h"
++#include "llvm/CodeGen/RegisterScavenging.h"
++
++using namespace llvm;
++
++namespace llvm {
++
++  class MBBTracing : public MachineFunctionPass {
++    public:
++  		const X86Subtarget *Subtarget;
++      static char ID;
++      MBBTracing(TargetMachine &TM): MachineFunctionPass(ID){
++			  Subtarget = &TM.getSubtarget<X86Subtarget>();
++  		}
++
++  		virtual const char *getPassName() const{
++    		return "machine block tracing";
++  		}
++
++      bool runOnMachineFunction(MachineFunction &MF);
++      
++  };
++}
++
++char MBBTracing::ID = 0;
++//char &llvm::MBBTracingID = MBBTracing::ID;
++
++//INITIALIZE_PASS(MBBTracing, "machine-block-trace",
++//                "Inserts profiling information in every machine basic block", 
++//               false, false)
++
++bool MBBTracing::runOnMachineFunction(MachineFunction &MF){
++  errs() << MF.getFunctionNumber() << "\n&&&&&&&&\n";
++  	const TargetInstrInfo *TII= MF.getTarget().getInstrInfo();
++
++  for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; 
++      I++){
++     MachineBasicBlock *MBB = I;
++    
++    MachineBasicBlock::iterator II = MBB->begin(), IE = MBB->end(); 
++	while(II != IE){
++
++    	MachineInstr *MI = II;
++    	if(MI->isCall()){
++			errs() << "found this one\n" ;
++			II++;
++			DebugLoc DL = MI->getDebugLoc();
++			const uint32_t *RegMask =
++    			MF.getTarget().getRegisterInfo()->getCallPreservedMask(CallingConv::C);
++
++  			const TargetRegisterClass *IntRegClass =
++    			MF.getTarget().getTargetLowering()->getRegClassFor(MVT::i64);
++			RegScavenger RC;
++			RC.enterBasicBlock(MBB);
++			unsigned reg = RC.scavengeRegister(IntRegClass,II,0);
++			//unsigned reg = MF.getTarget().createVirtualRegister(IntRegClass);
++
++			BuildMI(*MBB, II, DL, TII->get(X86::MOV64rr),reg)
++				.addReg(X86::RAX);
++
++    		BuildMI(*MBB, II, DL, TII->get(X86::MOV32ri), X86::RDI)
++      			.addImm(MF.getFunctionNumber());
++    		BuildMI(*MBB, II, DL, TII->get(X86::CALL64pcrel32))
++      			.addExternalSymbol("record_function_exec")
++      			.addRegMask(RegMask)
++      			.addReg(X86::RDI, RegState::Implicit)
++      			.addReg(X86::RAX, RegState::ImplicitDefine);
++			
++			BuildMI(*MBB, II, DL, TII->get(X86::MOV64rr),X86::RAX)
++				.addReg(reg);
++
++        //errs() << *MI << "\n---------\n";
++			//errs() << MI->getOperand(0) << "\n------\n";
++			//errs() << MI->getOperand(0).getType() << "\n------\n";
++			/*
++		 	* note to myself: These are MO_global_values (address of a global value)
++		 	*/
++			//errs() << MI->getOperand(0).getOffset() << "\n------\n";
++      	}else
++			II++;
++      
++    }
++	 	errs() << *MBB << "\n********\n";
++
++  }
++
++  return false;
++}
++
++//// Force static initialization.
++extern "C" void LLVMInitializeX86MBBTracing() {
++	RegisterMBBTracing<MBBTracing> X(TheX86_32Target);
++	RegisterMBBTracing<MBBTracing> Y(TheX86_64Target);
++}
 Index: tools/lto/lto.cpp
 ===================================================================
 --- tools/lto/lto.cpp	(revision 218178)
