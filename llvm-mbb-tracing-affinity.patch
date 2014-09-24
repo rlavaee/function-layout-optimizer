@@ -697,7 +697,7 @@ Index: lib/Transforms/IPO/CallSiteTracing.cpp
 ===================================================================
 --- lib/Transforms/IPO/CallSiteTracing.cpp	(revision 0)
 +++ lib/Transforms/IPO/CallSiteTracing.cpp	(working copy)
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,342 @@
 +#include "CommonTracing.hpp"
 +#include "llvm/Pass.h"
 +#include "llvm/Support/raw_ostream.h"
@@ -890,13 +890,14 @@ Index: lib/Transforms/IPO/CallSiteTracing.cpp
 +    return false;  // No main, no instrumentation!
 +  }
 +
-+  /*
++  
 +  unsigned BBNumber = 0;
 +  short FuncNumber = 0;
 +  for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F){
 +    
 +    if(!F->isDeclaration()){
 +
++/*	    
 +      InsertInstrumentationCall (F->begin(), "record_function_exec", FuncNumber, BBNumber);
 +      for (Function::iterator BB = F->begin(), E = F->end(); BB != E; ++BB) {
 +	for (BasicBlock::iterator II = BB->begin(), E= BB->end(); II != E; ++II){
@@ -915,12 +916,12 @@ Index: lib/Transforms/IPO/CallSiteTracing.cpp
 +	++BBNumber;
 +      }
 +      
-+
++*/
 +
 +      ++FuncNumber;
 +    }
 +  }
-+  */
++  
 +
 +
 +  // Add the initialization call to main.
