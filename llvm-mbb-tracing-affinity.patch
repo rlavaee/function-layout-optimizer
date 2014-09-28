@@ -1,8 +1,24 @@
+Index: include/llvm/Analysis/Passes.h
+===================================================================
+--- include/llvm/Analysis/Passes.h	(revision 218178)
++++ include/llvm/Analysis/Passes.h	(working copy)
+@@ -163,6 +163,11 @@
+   // information and prints it with -analyze.
+   //
+   FunctionPass *createMemDepPrinter();
++
++	/*
++	 * added by rlavaee
++	 */
++	ModulePass *createMBBTracingPreparePass();
+ }
+ 
+ #endif
 Index: include/llvm/InitializePasses.h
 ===================================================================
---- include/llvm/InitializePasses.h	(revision 200949)
+--- include/llvm/InitializePasses.h	(revision 218178)
 +++ include/llvm/InitializePasses.h	(working copy)
-@@ -265,6 +265,14 @@
+@@ -265,6 +265,15 @@
  void initializeSLPVectorizerPass(PassRegistry&);
  void initializeBBVectorizePass(PassRegistry&);
  void initializeMachineFunctionPrinterPassPass(PassRegistry&);
@@ -14,14 +30,15 @@ Index: include/llvm/InitializePasses.h
 +void initializeFunctionCallSiteTracerPass(PassRegistry&);
 +void initializeFunctionReordererPass(PassRegistry&);
 +void initializeInstCacheCountingPass(PassRegistry&);
++void initializeMBBTracingPreparePass(PassRegistry&);
  }
  
  #endif
 Index: include/llvm/LinkAllPasses.h
 ===================================================================
---- include/llvm/LinkAllPasses.h	(revision 200949)
+--- include/llvm/LinkAllPasses.h	(revision 218178)
 +++ include/llvm/LinkAllPasses.h	(working copy)
-@@ -154,6 +154,14 @@
+@@ -154,6 +154,15 @@
        (void) llvm::createSLPVectorizerPass();
        (void) llvm::createBBVectorizePass();
        (void) llvm::createPartiallyInlineLibCallsPass();
@@ -33,12 +50,13 @@ Index: include/llvm/LinkAllPasses.h
 +      (void) llvm::createFunctionCallSiteTracerPass();
 +      (void) llvm::createFunctionReordererPass("");
 +      (void) llvm::createInstCacheCountingPass();
++      (void) llvm::createMBBTracingPreparePass();
  
        (void)new llvm::IntervalPartition();
        (void)new llvm::FindUsedTypes();
 Index: include/llvm/Support/TargetRegistry.h
 ===================================================================
---- include/llvm/Support/TargetRegistry.h	(revision 200949)
+--- include/llvm/Support/TargetRegistry.h	(revision 218178)
 +++ include/llvm/Support/TargetRegistry.h	(working copy)
 @@ -26,6 +26,7 @@
  #include <string>
@@ -119,28 +137,17 @@ Index: include/llvm/Support/TargetRegistry.h
    /// RegisterMCCodeEmitter - Helper template for registering a target specific
    /// machine code emitter, for use in the target initialization
    /// function. Usage:
-Index: include/llvm/Support/TargetSelect.h
-===================================================================
---- include/llvm/Support/TargetSelect.h	(revision 200949)
-+++ include/llvm/Support/TargetSelect.h	(working copy)
-@@ -34,6 +34,8 @@
- #define LLVM_ASM_PRINTER(TargetName) void LLVMInitialize##TargetName##AsmPrinter();
- #include "llvm/Config/AsmPrinters.def"
- 
-+void LLVMInitializeX86MBBTracing();
-+
-   // Declare all of the available assembly parser initialization functions.
- #define LLVM_ASM_PARSER(TargetName) void LLVMInitialize##TargetName##AsmParser();
- #include "llvm/Config/AsmParsers.def"
 Index: include/llvm/Transforms/IPO.h
 ===================================================================
---- include/llvm/Transforms/IPO.h	(revision 200949)
+--- include/llvm/Transforms/IPO.h	(revision 218178)
 +++ include/llvm/Transforms/IPO.h	(working copy)
-@@ -198,6 +198,13 @@
+@@ -198,6 +198,15 @@
  /// manager.
  ModulePass *createBarrierNoopPass();
  
-+//added by rlavaee
++/*
++ * added by rlavaee
++ */
 +ModulePass *createCallEdgeTracerPass();
 +ModulePass *createBasicBlockCallSiteTracerPass();
 +ModulePass *createFunctionCallSiteTracerPass();
@@ -150,101 +157,117 @@ Index: include/llvm/Transforms/IPO.h
  } // End llvm namespace
  
  #endif
-Index: include/llvm/Transforms/Instrumentation.h
-===================================================================
---- include/llvm/Transforms/Instrumentation.h	(revision 200949)
-+++ include/llvm/Transforms/Instrumentation.h	(working copy)
-@@ -127,6 +127,7 @@
- ///       seen by the debugger.
- ModulePass *createDebugIRPass();
- 
-+
- } // End llvm namespace
- 
- #endif
 Index: include/llvm-c/Target.h
 ===================================================================
---- include/llvm-c/Target.h	(revision 200949)
+--- include/llvm-c/Target.h	(revision 218178)
 +++ include/llvm-c/Target.h	(working copy)
 @@ -42,6 +42,9 @@
  typedef struct LLVMOpaqueTargetData *LLVMTargetDataRef;
  typedef struct LLVMOpaqueTargetLibraryInfotData *LLVMTargetLibraryInfoRef;
  
-+//rlavaee
-+void LLVMInitializeX86MBBTracing(void);
++/* rlavaee */
++void LLVMInitializeX86MBBTracing();
 +
  /* Declare all of the target-initialization functions that are available. */
  #define LLVM_TARGET(TargetName) \
    void LLVMInitialize##TargetName##TargetInfo(void);
-Index: lib/CodeGen/LLVMTargetMachine.cpp
+Index: lib/Analysis/CMakeLists.txt
 ===================================================================
---- lib/CodeGen/LLVMTargetMachine.cpp	(revision 200949)
-+++ lib/CodeGen/LLVMTargetMachine.cpp	(working copy)
-@@ -53,6 +53,7 @@
- AsmVerbose("asm-verbose", cl::desc("Add comments to directives."),
-            cl::init(cl::BOU_UNSET));
+--- lib/Analysis/CMakeLists.txt	(revision 218178)
++++ lib/Analysis/CMakeLists.txt	(working copy)
+@@ -50,6 +50,7 @@
+   Trace.cpp
+   TypeBasedAliasAnalysis.cpp
+   ValueTracking.cpp
++	MBBTracingPrepare.cpp
+   )
  
+ add_dependencies(LLVMAnalysis intrinsics_gen)
+Index: lib/Analysis/MBBTracingPrepare.cpp
+===================================================================
+--- lib/Analysis/MBBTracingPrepare.cpp	(revision 0)
++++ lib/Analysis/MBBTracingPrepare.cpp	(working copy)
+@@ -0,0 +1,77 @@
++#include "llvm/Pass.h"
++#include "llvm/Analysis/Passes.h"
++#include "llvm/IR/Module.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Transforms/Utils/BasicBlockUtils.h"
++#include "llvm/IR/Constants.h"
++//#include "llvm/Transforms/Instrumentation.h"
++#include "llvm/Support/CallSite.h"
++using namespace llvm;
 +
- static bool getVerboseAsm() {
-   switch (AsmVerbose) {
-   case cl::BOU_UNSET: return TargetMachine::getAsmVerbosityDefault();
-@@ -131,8 +132,24 @@
- 
-   PassConfig->addMachinePasses();
- 
--  PassConfig->setInitialized();
- 
-+/*
-+	if(EnableMBBTracing){
-+		MachineFunctionPass * tracing = TM->getTarget().createMBBTracingPass(*TM);
-+		if(tracing==0)
-+			assert(false && "constructor is not set");
-+		else{
-+			PM.add(tracing);
++namespace {
++  class MBBTracingPrepare : public ModulePass {
++    bool runOnModule(Module &M);
++  public:
++    static char ID;
++
++    MBBTracingPrepare(): ModulePass(ID){
++			initializeMBBTracingPreparePass(*PassRegistry::getPassRegistry());
 +		}
-+		
-+	}
 +
-+	PassConfig->addMachinePassesAfterMBBTracing();
-+	*/
++    virtual const char * getPassName() const{
++      return "Prepares the module for machine basic block tracing.";
++    }
++  };
 +  
-+	PassConfig->setInitialized();
-+	
++}
 +
-   return &MMI->getContext();
- }
- 
-@@ -145,6 +162,9 @@
-   // Add common CodeGen passes.
-   MCContext *Context = addPassesToGenerateCode(this, PM, DisableVerify,
-                                                StartAfter, StopAfter);
-+	
-+		
++void InsertEntryBBCall(Function &Fn,
++							const char *FnName,
++							short funcNo){
++  Module *M = Fn.getParent ();
++  LLVMContext &Context = Fn.getContext();
++  Type *VoidTy = Type::getVoidTy(Context);
++  Type *SIntTy = Type::getInt16Ty(Context);
++  Constant *InstrFn = M->getOrInsertFunction (FnName, VoidTy,
++                                              SIntTy, SIntTy, (Type *)0);
++  std::vector<Value*> Args (2);
++  Args[0] = ConstantInt::get (SIntTy, funcNo);
++  Args[1] = ConstantInt::get (SIntTy, 0);
 +
-   if (!Context)
-     return true;
- 
-@@ -216,7 +236,9 @@
-   }
- 
-   // Create the AsmPrinter, which takes ownership of AsmStreamer if successful.
-+  errs() << "Creating the printer\n";
-   FunctionPass *Printer = getTarget().createAsmPrinter(*this, *AsmStreamer);
-+  //errs() << "Before adding the streamer:\t" << PM.getAsPMDataManager->getNumContainedPasses()<<"\n-----\n";
-   if (Printer == 0)
-     return true;
- 
-@@ -224,6 +246,7 @@
-   AsmStreamer.take();
- 
-   PM.add(Printer);
-+  //errs() << "After adding the streamer:\t" << PM.getAsPMDataManager->getNumContainedPasses()<<"\n-----\n";
- 
-   return false;
- }
++  // Insert the call after any alloca or PHI instructions...                                                                       
++	//errs() << "BABH\n**********\n" << *(Fn.begin()) << "\n";
++  BasicBlock::iterator InsertPos = Fn.begin()->begin();
++  while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos))
++    ++InsertPos;
++
++  CallInst::Create(InstrFn, Args, "", InsertPos);
++}
++
++
++char MBBTracingPrepare::ID = 0;
++INITIALIZE_PASS (MBBTracingPrepare,"mbb-tracing-prepare","Prepares the module for machine basic block tracing.",false,false)
++
++ModulePass *llvm::createMBBTracingPreparePass(){
++	return new MBBTracingPrepare();
++}
++
++bool MBBTracingPrepare::runOnModule(Module &M){
++  Function *Main = M.getFunction("main");
++  if (Main == 0) {
++    errs() << "WARNING: cannot insert trace instrumentatiom "
++	   << "into a module with no main function!\n";
++    return false;  // No main, no instrumentation!
++  }
++
++	M.getFunctionList().remove(Main);
++	M.getFunctionList().push_back(Main);
++
++	short funcNo=0;
++  for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F){
++		if(!F->isDeclaration()){
++			InsertEntryBBCall(*F,"record_function_exec",funcNo);
++			funcNo++;
++		}
++	}
++}
++ 
 Index: lib/CodeGen/Passes.cpp
 ===================================================================
---- lib/CodeGen/Passes.cpp	(revision 200949)
+--- lib/CodeGen/Passes.cpp	(revision 218178)
 +++ lib/CodeGen/Passes.cpp	(working copy)
 @@ -27,9 +27,13 @@
  #include "llvm/Target/TargetLowering.h"
@@ -268,15 +291,31 @@ Index: lib/CodeGen/Passes.cpp
  // Experimental option to run live interval analysis early.
  static cl::opt<bool> EarlyLiveIntervals("early-live-intervals", cl::Hidden,
      cl::desc("Run live interval analysis earlier in the pipeline"));
-@@ -384,7 +387,6 @@
+@@ -360,6 +363,10 @@
+ /// Add common target configurable passes that perform LLVM IR to IR transforms
+ /// following machine independent optimization.
+ void TargetPassConfig::addIRPasses() {
++	/*
++	 * rlavaee: prepare the module for mbb tracing (move main to the end)
++	 */
++	
+   // Basic AliasAnalysis support.
+   // Add TypeBasedAliasAnalysis before BasicAliasAnalysis so that
+   // BasicAliasAnalysis wins if they disagree. This is intended to help
+@@ -383,8 +390,11 @@
+ 
    // Make sure that no unreachable blocks are instruction selected.
    addPass(createUnreachableBlockEliminationPass());
++
++	if(EnableMBBTracing){
++		addPass(createMBBTracingPreparePass());
++	}
  }
 -
  /// Turn exception handling constructs into something the code generators can
  /// handle.
  void TargetPassConfig::addPassesToHandleExceptions() {
-@@ -534,6 +536,14 @@
+@@ -534,6 +544,14 @@
    if (getOptLevel() != CodeGenOpt::None)
      addBlockPlacement();
  
@@ -293,7 +332,7 @@ Index: lib/CodeGen/Passes.cpp
  }
 Index: lib/LTO/LTOCodeGenerator.cpp
 ===================================================================
---- lib/LTO/LTOCodeGenerator.cpp	(revision 200949)
+--- lib/LTO/LTOCodeGenerator.cpp	(revision 218178)
 +++ lib/LTO/LTOCodeGenerator.cpp	(working copy)
 @@ -12,6 +12,7 @@
  //
@@ -351,28 +390,13 @@ Index: lib/LTO/LTOCodeGenerator.cpp
  
    return true;
  }
-Index: lib/Target/X86/CMakeLists.txt
-===================================================================
---- lib/Target/X86/CMakeLists.txt	(revision 200949)
-+++ lib/Target/X86/CMakeLists.txt	(working copy)
-@@ -34,6 +34,7 @@
-   X86TargetTransformInfo.cpp
-   X86VZeroUpper.cpp
-   X86FixupLEAs.cpp
-+  MBBTracing.cpp
-   )
- 
- if( CMAKE_CL_64 )
 Index: lib/Target/X86/MBBTracing.cpp
 ===================================================================
 --- lib/Target/X86/MBBTracing.cpp	(revision 0)
 +++ lib/Target/X86/MBBTracing.cpp	(working copy)
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,300 @@
 +#include "llvm/CodeGen/MachineFunctionPass.h"
 +#include "llvm/CodeGen/MachineFunction.h"
-+//#include "llvm/CodeGen/MachineRegisterInfo.h"
-+//#include "llvm/Target/TargetRegisterInfo.h"
-+//#include "llvm/Target/TargetMachine.h"
 +#include "llvm/CodeGen/Passes.h"
 +#include "llvm/Support/Debug.h"
 +#include "llvm/Support/raw_ostream.h"
@@ -385,6 +409,7 @@ Index: lib/Target/X86/MBBTracing.cpp
 +#include "llvm/CodeGen/MachineRegisterInfo.h"
 +#include "llvm/Target/TargetLowering.h"
 +#include "llvm/CodeGen/RegisterScavenging.h"
++#include "llvm/IR/Function.h"
 +
 +using namespace llvm;
 +
@@ -394,6 +419,7 @@ Index: lib/Target/X86/MBBTracing.cpp
 +    public:
 +  		const X86Subtarget *Subtarget;
 +      static char ID;
++			std::vector <uint16_t> bb_count_vec;
 +      MBBTracing(TargetMachine &TM): MachineFunctionPass(ID){
 +			  Subtarget = &TM.getSubtarget<X86Subtarget>();
 +  		}
@@ -403,6 +429,13 @@ Index: lib/Target/X86/MBBTracing.cpp
 +  		}
 +
 +      bool runOnMachineFunction(MachineFunction &MF);
++
++			bool insertCall(MachineFunction &MF, 
++											MachineBasicBlock *MBB, 
++											const MachineBasicBlock::iterator &MBBI,
++											SmallSet<uint16_t,8> &liveRegs);
++
++			bool setupCounts(MachineFunction &MF);
 +      
 +  };
 +}
@@ -414,62 +447,247 @@ Index: lib/Target/X86/MBBTracing.cpp
 +//                "Inserts profiling information in every machine basic block", 
 +//               false, false)
 +
-+bool MBBTracing::runOnMachineFunction(MachineFunction &MF){
-+  errs() << MF.getFunctionNumber() << "\n&&&&&&&&\n";
-+  	const TargetInstrInfo *TII= MF.getTarget().getInstrInfo();
-+
-+  for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; 
-+      I++){
-+     MachineBasicBlock *MBB = I;
++/*
++ * inserts the call to record_function_exec at MF, at MBB, 
++ * before MBBI
++ */
++bool MBBTracing::insertCall(MachineFunction &MF,
++														MachineBasicBlock *MBB,
++														const MachineBasicBlock::iterator &MBBI,
++														SmallSet<uint16_t,8> &liveRegs){
++			
++			const TargetInstrInfo *TII= MF.getTarget().getInstrInfo();
++  		
++			static const uint16_t CallerSavedRegs64Bit[] = {0,
++    		X86::RAX, X86::RDX, X86::RCX, X86::RSI, X86::RDI,
++    		X86::R8,  X86::R9,  X86::R10, X86::R11, 0
++  		};
++		
 +    
-+    MachineBasicBlock::iterator II = MBB->begin(), IE = MBB->end(); 
-+	while(II != IE){
++   			const TargetRegisterInfo *TRI = MF.getTarget().getRegisterInfo();
 +
-+    	MachineInstr *MI = II;
-+    	if(MI->isCall()){
-+			errs() << "found this one\n" ;
-+			II++;
-+			DebugLoc DL = MI->getDebugLoc();
-+			const uint32_t *RegMask =
-+    			MF.getTarget().getRegisterInfo()->getCallPreservedMask(CallingConv::C);
 +
-+  			const TargetRegisterClass *IntRegClass =
-+    			MF.getTarget().getTargetLowering()->getRegClassFor(MVT::i64);
-+			RegScavenger RC;
-+			RC.enterBasicBlock(MBB);
-+			unsigned reg = RC.scavengeRegister(IntRegClass,II,0);
-+			//unsigned reg = MF.getTarget().createVirtualRegister(IntRegClass);
++				//errs() << "found this one\n" ;
++				DebugLoc DL = MBBI->getDebugLoc();
++				const uint32_t *RegMask =
++    				MF.getTarget().getRegisterInfo()->getCallPreservedMask(CallingConv::C);
 +
-+			BuildMI(*MBB, II, DL, TII->get(X86::MOV64rr),reg)
-+				.addReg(X86::RAX);
++  			//const TargetRegisterClass *IntRegClass =
++    		//	MF.getTarget().getTargetLowering()->getRegClassFor(MVT::i64);
++				//RegScavenger RC;
++				//RC.enterBasicBlock(MBB);
++				//unsigned reg = RC.scavengeRegister(IntRegClass,II,0);
++				//unsigned reg = MF.getTarget().createVirtualRegister(IntRegClass);
 +
-+    		BuildMI(*MBB, II, DL, TII->get(X86::MOV32ri), X86::RDI)
++    
++				if(liveRegs.count(X86::EFLAGS))
++					BuildMI(*MBB, MBBI, DL, TII->get(X86::PUSHF64));
++
++				const uint16_t *CS = CallerSavedRegs64Bit;
++    		for (++CS; *CS; ++CS)
++					if(liveRegs.count(*CS))
++						BuildMI(*MBB, MBBI, DL, TII->get(X86::PUSH64r))
++							.addReg(*CS);
++
++
++    		BuildMI(*MBB, MBBI, DL, TII->get(X86::MOV32ri),X86::EDI)
 +      			.addImm(MF.getFunctionNumber());
-+    		BuildMI(*MBB, II, DL, TII->get(X86::CALL64pcrel32))
++    		
++				BuildMI(*MBB, MBBI, DL, TII->get(X86::MOV32ri),X86::ESI)
++      			.addImm(MBB->getNumber());
++
++    		BuildMI(*MBB, MBBI, DL, TII->get(X86::CALL64pcrel32))
 +      			.addExternalSymbol("record_function_exec")
 +      			.addRegMask(RegMask)
-+      			.addReg(X86::RDI, RegState::Implicit)
-+      			.addReg(X86::RAX, RegState::ImplicitDefine);
-+			
-+			BuildMI(*MBB, II, DL, TII->get(X86::MOV64rr),X86::RAX)
-+				.addReg(reg);
++      			.addReg(X86::EDI, RegState::Implicit)
++      			.addReg(X86::ESI, RegState::Implicit)
++      			.addReg(X86::EAX, RegState::ImplicitDefine);
 +
-+        //errs() << *MI << "\n---------\n";
-+			//errs() << MI->getOperand(0) << "\n------\n";
-+			//errs() << MI->getOperand(0).getType() << "\n------\n";
-+			/*
-+		 	* note to myself: These are MO_global_values (address of a global value)
-+		 	*/
-+			//errs() << MI->getOperand(0).getOffset() << "\n------\n";
-+      	}else
-+			II++;
-+      
-+    }
-+	 	errs() << *MBB << "\n********\n";
++    		for (--CS; *CS; --CS)
++					if(liveRegs.count(*CS))
++						BuildMI(*MBB, MBBI, DL, TII->get(X86::POP64r))
++							.addReg(*CS);
++
++				if(liveRegs.count(X86::EFLAGS))
++					BuildMI(*MBB, MBBI, DL, TII->get(X86::POPF64));
++		return false;						
++	}
++bool MBBTracing::runOnMachineFunction(MachineFunction &MF){
++
++ 		errs() << MF.getFunction()->getName() << "\n&&&&&&&&\n"; 
++
++		bb_count_vec.push_back(MF.getNumBlockIDs());
++
++   			const TargetRegisterInfo *TRI = MF.getTarget().getRegisterInfo();
++				MachineFunction::iterator I = MF.begin(), E = MF.end();
++
++  	  for(I++; I != E; I++){
++     	MachineBasicBlock *MBB = I;
++			SmallSet<uint16_t, 8> liveRegs;
++
++
++
++			//errs() << "Live register at the start ob BB:\n";
++		for(MachineBasicBlock::livein_iterator li = MBB->livein_begin(), le = MBB->livein_end(); li!=le; ++li){
++      for (MCRegAliasIterator AI(*li, TRI, true); AI.isValid(); ++AI)
++        liveRegs.insert(*AI);
++		}
++
++
++    MachineBasicBlock::iterator MBBI = MBB->begin(), MBBE = MBB->end(); 
++		bool entryCallInserted = false;
++		while(MBBI != MBBE){
++
++/*
++			if(!MBBI->getFlag(MachineInstr::FrameSetup) && !entryCallInserted){
++				//errs () << "This one: " <<*MBBI << "\n**************\n";
++				errs() << *MBBI << "\n$$$$$$$$$$$$\n";
++				insertCall(MF,MBB,MBBI,liveRegs);
++				entryCallInserted = true;
++			}
++*/
++     	for (unsigned i = 0, e = MBBI->getNumOperands(); i != e; ++i) {
++      	MachineOperand &MO = MBBI->getOperand(i);
++      	if (!MO.isReg())
++					continue;
++      	unsigned Reg = MO.getReg();
++				if(!Reg)
++					continue;
++				if(MO.isDef() && !MO.isDead())
++      		for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
++        		liveRegs.insert(*AI);
++				if(MO.isKill())
++      		for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
++						liveRegs.erase(*AI);
++    	}
++
++			if(MBBI->isCall()){
++				insertCall(MF,MBB,++MBBI,liveRegs);
++      }else
++					MBBI++;
++    	}
++	 	//errs() << *MBB << "\n***************************\n**************************\n";
 +
 +  }
 +
++ 	if (MF.getFunction()->getName().equals("main")){ /* last one */
++		setupCounts(MF);
++    
++	}
++
++
++
 +  return false;
++}
++
++bool MBBTracing::setupCounts(MachineFunction &MF){
++	SmallSet<uint16_t, 8> liveRegs;
++  const TargetRegisterInfo *TRI = MF.getTarget().getRegisterInfo();
++     
++	MachineBasicBlock *MBB = MF.begin();
++
++	for(MachineBasicBlock::livein_iterator li = MBB->livein_begin(), le = MBB->livein_end(); li!=le; ++li){
++     for (MCRegAliasIterator AI(*li, TRI, true); AI.isValid(); ++AI)
++       liveRegs.insert(*AI);
++	}
++
++
++	MachineBasicBlock::iterator MBBI = MBB->begin(), MBBE = MBB->end(); 
++		while(MBBI->getFlag(MachineInstr::FrameSetup)){
++			for (unsigned i = 0, e = MBBI->getNumOperands(); i != e; ++i) {
++      	MachineOperand &MO = MBBI->getOperand(i);
++      	if (!MO.isReg())
++					continue;
++      	unsigned Reg = MO.getReg();
++				if(!Reg)
++					continue;
++				if(MO.isDef() && !MO.isDead())
++      		for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
++        		liveRegs.insert(*AI);
++				if(MO.isKill())
++      		for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
++						liveRegs.erase(*AI);
++    	}
++
++			MBBI++;
++		}
++
++		errs() << *MBBI << "\n***********\n";
++
++  		
++			const TargetInstrInfo *TII= MF.getTarget().getInstrInfo();
++			static const uint16_t CallerSavedRegs64Bit[] = {0,
++    		X86::RAX, X86::RDX, X86::RCX, X86::RSI, X86::RDI,
++    		X86::R8,  X86::R9,  X86::R10, X86::R11, 0
++  		};
++		
++    
++
++
++				//errs() << "found this one\n" ;
++				DebugLoc DL = MBBI->getDebugLoc();
++				const uint32_t *RegMask =
++    				MF.getTarget().getRegisterInfo()->getCallPreservedMask(CallingConv::C);
++
++  			//const TargetRegisterClass *IntRegClass =
++    		//	MF.getTarget().getTargetLowering()->getRegClassFor(MVT::i64);
++				//RegScavenger RC;
++				//RC.enterBasicBlock(MBB);
++				//unsigned reg = RC.scavengeRegister(IntRegClass,II,0);
++				//unsigned reg = MF.getTarget().createVirtualRegister(IntRegClass);
++
++    
++				if(liveRegs.count(X86::EFLAGS))
++					BuildMI(*MBB, MBBI, DL, TII->get(X86::PUSHF64));
++
++				const uint16_t *CS = CallerSavedRegs64Bit;
++    		for (++CS; *CS; ++CS)
++					if(liveRegs.count(*CS))
++						BuildMI(*MBB, MBBI, DL, TII->get(X86::PUSH64r))
++							.addReg(*CS);
++
++
++				BuildMI(*MBB, MBBI, DL, TII->get(X86::MOV32ri),X86::EDI)
++      			.addImm(bb_count_vec.size());
++
++    		BuildMI(*MBB, MBBI, DL, TII->get(X86::CALL64pcrel32))
++      			.addExternalSymbol("start_bb_call_site_tracing")
++      			.addRegMask(RegMask)
++      			.addReg(X86::EDI, RegState::Implicit)
++      			.addReg(X86::EAX, RegState::ImplicitDefine);
++
++				for(unsigned i=0; i<bb_count_vec.size(); ++i){
++					
++					BuildMI(*MBB, MBBI, DL, TII->get(X86::MOV32ri),X86::EDI)
++      			.addImm(i);
++				
++					BuildMI(*MBB, MBBI, DL, TII->get(X86::MOV32ri),X86::ESI)
++      			.addImm(bb_count_vec[i]);
++	
++    			BuildMI(*MBB, MBBI, DL, TII->get(X86::CALL64pcrel32))
++      			.addExternalSymbol("set_bb_count_for_fid")
++      			.addRegMask(RegMask)
++      			.addReg(X86::EDI, RegState::Implicit)
++      			.addReg(X86::ESI, RegState::Implicit)
++      			.addReg(X86::EAX, RegState::ImplicitDefine);
++				}
++
++    			BuildMI(*MBB, MBBI, DL, TII->get(X86::CALL64pcrel32))
++      			.addExternalSymbol("initialize_post_bb_count_data")
++      			.addRegMask(RegMask)
++      			.addReg(X86::EAX, RegState::ImplicitDefine);
++
++    		for (--CS; *CS; --CS)
++					if(liveRegs.count(*CS))
++						BuildMI(*MBB, MBBI, DL, TII->get(X86::POP64r))
++							.addReg(*CS);
++
++				if(liveRegs.count(X86::EFLAGS))
++					BuildMI(*MBB, MBBI, DL, TII->get(X86::POPF64));
++
++
++	return false;
++
 +}
 +
 +//// Force static initialization.
@@ -477,22 +695,6 @@ Index: lib/Target/X86/MBBTracing.cpp
 +	RegisterMBBTracing<MBBTracing> X(TheX86_32Target);
 +	RegisterMBBTracing<MBBTracing> Y(TheX86_64Target);
 +}
-Index: lib/Transforms/IPO/CMakeLists.txt
-===================================================================
---- lib/Transforms/IPO/CMakeLists.txt	(revision 200949)
-+++ lib/Transforms/IPO/CMakeLists.txt	(working copy)
-@@ -20,6 +20,10 @@
-   PruneEH.cpp
-   StripDeadPrototypes.cpp
-   StripSymbols.cpp
--  )
-+  CallSiteTracing.cpp
-+  CommonTracing.cpp
-+  FunctionReordering.cpp
-+  CallEdgeTracing.cpp
-+)
- 
- add_dependencies(LLVMipo intrinsics_gen)
 Index: lib/Transforms/IPO/CacheCounting.cpp
 ===================================================================
 --- lib/Transforms/IPO/CacheCounting.cpp	(revision 0)
@@ -935,7 +1137,7 @@ Index: lib/Transforms/IPO/CallSiteTracing.cpp
 +    errs() << "WARNING: cannot insert trace instrumentatiom "
 +	   << "into a module with no main function!\n";
 +    return false;  // No main, no instrumentation!
-+  }
++	}
 +  
 +  uint16_t bbid = 0;
 +  uint16_t fid = 0;
@@ -954,7 +1156,7 @@ Index: lib/Transforms/IPO/CallSiteTracing.cpp
 +	    if (Callee && !Callee->isDeclaration()){
 +	      ++II;
 +	      if(II!=E)
-+		InsertBBInstrumentationCall(II, "record_function_exec", fid, bbid);
++		//InsertBBInstrumentationCall(II, "record_function_exec", fid, bbid);
 +	      --II;
 +	    }
 +	  }
@@ -1235,30 +1437,15 @@ Index: lib/Transforms/IPO/FunctionReordering.cpp
 +}
 Index: lib/Transforms/IPO/PassManagerBuilder.cpp
 ===================================================================
---- lib/Transforms/IPO/PassManagerBuilder.cpp	(revision 200949)
+--- lib/Transforms/IPO/PassManagerBuilder.cpp	(revision 218178)
 +++ lib/Transforms/IPO/PassManagerBuilder.cpp	(working copy)
-@@ -12,7 +12,7 @@
- //
- //===----------------------------------------------------------------------===//
+@@ -28,6 +28,27 @@
  
--
-+#include "llvm/Support/raw_ostream.h"
- #include "llvm/Transforms/IPO/PassManagerBuilder.h"
- #include "llvm-c/Transforms/PassManagerBuilder.h"
- #include "llvm/ADT/SmallVector.h"
-@@ -23,6 +23,7 @@
- #include "llvm/Support/ManagedStatic.h"
- #include "llvm/Target/TargetLibraryInfo.h"
- #include "llvm/Transforms/IPO.h"
-+#include "llvm/Transforms/Instrumentation.h"
- #include "llvm/Transforms/Scalar.h"
- #include "llvm/Transforms/Vectorize.h"
+ using namespace llvm;
  
-@@ -58,6 +59,24 @@
- RunLoopRerolling("reroll-loops", cl::Hidden,
-                  cl::desc("Run the loop rerolling pass"));
- 
-+//added by rlavaee
++/*
++ * rlavaee
++ */
 +static cl::opt<bool> EnableWindowCSInstrument("enable-window-callsite-inst", cl::Hidden,
 +      cl::desc("Instruments IR Basic Blocks After IR Optimizations"));
 +
@@ -1276,17 +1463,19 @@ Index: lib/Transforms/IPO/PassManagerBuilder.cpp
 +static cl::opt<bool> EnableCacheCounting("enable-cache-counting-inst", cl::Hidden,
 +			cl::desc("Instruments with intel cache counting counters"));
 +
- PassManagerBuilder::PassManagerBuilder() {
-     OptLevel = 2;
-     SizeLevel = 0;
-@@ -353,6 +372,31 @@
++
+ static cl::opt<bool>
+ RunLoopVectorization("vectorize-loops", cl::Hidden,
+                      cl::desc("Run the Loop vectorization passes"));
+@@ -353,6 +374,33 @@
  
    // Now that we have optimized the program, discard unreachable functions.
    PM.add(createGlobalDCEPass());
-+	
-+	//rlavaee
-+	// If asked, instrument entries only (call edge)
-+	if(EnableCEInstrument){
++	/*
++	 * rlavaee
++	 */
++	 //If asked, instrument entries only (call edge)
++	 if(EnableCEInstrument){
 +	 	PM.add(createCallEdgeTracerPass());
 +	}
 +	// If asked, instrument every basic block
@@ -1308,18 +1497,18 @@ Index: lib/Transforms/IPO/PassManagerBuilder.cpp
 +	 if(EnableCacheCounting){
 +	 	PM.add(createInstCacheCountingPass());
 +	}
++
  }
  
  inline PassManagerBuilder *unwrap(LLVMPassManagerBuilderRef P) {
 Index: tools/lto/lto.cpp
 ===================================================================
---- tools/lto/lto.cpp	(revision 200949)
+--- tools/lto/lto.cpp	(revision 218178)
 +++ tools/lto/lto.cpp	(working copy)
-@@ -52,6 +52,8 @@
+@@ -52,6 +52,7 @@
      LLVMInitializeAllAsmParsers();
      LLVMInitializeAllAsmPrinters();
      LLVMInitializeAllDisassemblers();
-+		//rlavaee
 +		LLVMInitializeX86MBBTracing();
      initialized = true;
    }
