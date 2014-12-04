@@ -42,6 +42,7 @@ namespace {
 char BasicBlockCallSiteTracer::ID = 0;
 static RegisterPass<BasicBlockCallSiteTracer> Y("trace-call-sites-bb-level","Insert instrumentation for basic block tracing", false, false);
 
+/*
 
 namespace {
   class BurstyCallSiteTracer : public ModulePass {
@@ -59,7 +60,7 @@ namespace {
 
 char BurstyCallSiteTracer::ID = 0;
 static RegisterPass<BurstyCallSiteTracer> Z("bursty-trace-call-sites","Insert instrumentation for basic block tracing", false, false);
-
+*/
 
 
 
@@ -86,7 +87,7 @@ void InsertInstrumentationCall(Instruction *II,
   while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos))
     ++InsertPos;
 
-  CallInst::Create(InstrFn, Args, "", InsertPos);
+  CallInst::Create(InstrFn, Args, "", InsertPos)->setCallingConv(CallingConv::C);
 
 }
 
@@ -118,6 +119,7 @@ void InsertInstrumentationCall (BasicBlock *BB,
   CallInst::Create(InstrFn, Args, "", InsertPos);
 }
 
+/*
 void InsertSwitchCall ( Function * original, Function * profiling, short FuncNumber){
 
   Module * M = original->getParent();
@@ -166,6 +168,7 @@ void InsertSwitchCall ( Function * original, Function * profiling, short FuncNum
   else
     ReturnInst::Create(Context, ifTrue);
 }
+*/
 
 
 bool FunctionCallSiteTracer::runOnModule(Module &M) {
@@ -188,6 +191,7 @@ bool FunctionCallSiteTracer::runOnModule(Module &M) {
 	for (BasicBlock::iterator II = BB->begin(), E= BB->end(); II != E; ++II){
 	  CallSite CS(cast<Value>(II));
 	  if (CS) {
+			errs() << *II << "\n-----\n";
 	    const Function *Callee = CS.getCalledFunction();
 	    //	    errs() << Callee->getName() <<" "<< Callee->isDeclaration() << "\n";
 	    if (Callee && !Callee->isDeclaration()){
@@ -206,7 +210,6 @@ bool FunctionCallSiteTracer::runOnModule(Module &M) {
       ++FuncNumber;
     }
   }
-
 
   // Add the initialization call to main.
   InsertCodeAnalysisInitCall(Main,"start_call_site_tracing", FuncNumber); 
@@ -259,6 +262,7 @@ bool BasicBlockCallSiteTracer::runOnModule(Module &M){
 
 }
 
+/*
 bool BurstyCallSiteTracer::runOnModule(Module &M) {
   Function *Main = M.getFunction("main");
   if (Main == 0) {
@@ -324,4 +328,5 @@ bool BurstyCallSiteTracer::runOnModule(Module &M) {
   InsertCodeAnalysisInitCall(Main,"llvm_init_affinity_analysis", FuncNumber); 
   return true;
 }
+*/
 

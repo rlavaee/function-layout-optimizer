@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <set>
 #include <cstring>
+#include <ostream>
 
 #define MAX_FILE_NAME 30
 using namespace std;
@@ -22,9 +23,19 @@ typedef uint16_t bb_t;
 func_t totalFuncs;
 bb_t * bb_count;
 uint32_t * bb_count_cum;
-uint32_t ** fall_through_counts;
+uint32_t *** fall_through_counts;
 
 typedef pair<bb_t,bb_t> bb_pair_t;
+typedef uint32_t Block;
+
+uint32_t get_key(Block rec){
+	return bb_count_cum[rec>>16]+(rec & 0xFFFF);
+}
+
+bool get_paired(Block rec1, Block rec2){
+	return true;
+	//return (((rec1 ^ rec2) & 0xFFFF0000) == 0) || ((rec2 & 0xFFFF)==0);
+}
 
 class Record{
   public:
@@ -48,6 +59,8 @@ class Record{
     return false;
   }
 
+	friend ostream& operator << (ostream &out, Record &rec);
+
   bool operator == (const Record &rhs) const{
     return fid==rhs.fid && bbid==rhs.bbid;
   }
@@ -63,7 +76,13 @@ class Record{
 
 };
 
+ostream& operator << (ostream &out, Record &rec){
+	out << "(" << rec.fid <<"," << rec.bbid << ")";
+	return out;
+}
+
 typedef pair<Record,Record> RecordPair;
+typedef pair<Block,Block> BlockPair;
 
 bool haveSameFunctions(const RecordPair &rec_pair){
   return rec_pair.first.fid == rec_pair.second.fid;
@@ -86,6 +105,14 @@ struct RecordPair_hash{
   }
 };
 
+struct BlockPair_hash{
+  size_t operator()(const BlockPair& rec_pair) const{
+    return hash<uint32_t>()(rec_pair.first ^ rec_pair.second);
+  }
+};
+
+
+
 
 struct bb_pair_hash{
   size_t operator()(const bb_pair_t &bbp) const{
@@ -93,56 +120,56 @@ struct bb_pair_hash{
   }
 };
 
-typedef std::unordered_map <const RecordPair, uint32_t *, RecordPair_hash > JointFreqMap;
-typedef std::unordered_map <const Record, uint32_t *, RecordHash> SingleFreqMap;
+typedef std::unordered_map <const BlockPair, uint32_t *, BlockPair_hash > JointFreqMap;
+typedef std::unordered_map <Block, uint32_t> SingleFreqMap;
 typedef std::unordered_map <const bb_pair_t, uint32_t , bb_pair_hash> FallThroughMap;
 
 
 struct disjointSet {
-  static std::unordered_map<const Record, disjointSet *,RecordHash> sets;
-  deque<Record> elements;
+  static std::unordered_map<Block, disjointSet *> sets;
+  deque<Block> elements;
   size_t size(){ return elements.size();}
 
-  static void init_new_set(const Record &rec){
+  static void init_new_set(Block rec){
     sets[rec]= new disjointSet();
     sets[rec]->elements.push_back(rec);
   }
 
-  static bool is_connected_to_right(const Record &rec){
+  static bool is_connected_to_right(Block rec){
     return sets[rec]->elements.back()!=rec;
   }
 
-  static bool is_connected_to_left(const Record &rec){
+  static bool is_connected_to_left(Block rec){
     return sets[rec]->elements.front()!=rec;
   }
 
   static void mergeBasicBlocksSameFunction(func_t fid, const bb_pair_t &bb_pair);
-	static void mergeFunctions(const RecordPair &rec_pair);
-  static void mergeSets(const Record &left_rec, const Record &right_rec);
+	static void mergeFunctions(const BlockPair &rec_pair);
+  static void mergeSets(Block left_rec, Block right_rec);
 
 };
 
-std::unordered_map<const Record, disjointSet *,RecordHash> disjointSet::sets = std::unordered_map<const Record, disjointSet *,RecordHash>();
+std::unordered_map<Block, disjointSet *> disjointSet::sets = std::unordered_map<Block, disjointSet *>();
 
 struct SampledWindow{
   wsize_t wsize;
-  list<Record> partial_trace_list;
-  set<Record> owners;
+  list<Block> partial_trace_list;
+  set<Block> owners;
 
   SampledWindow() :wsize(0){};
 
-	SampledWindow(const Record &rec) :wsize(0){
+	SampledWindow(Block rec) :wsize(0){
 		owners.insert(rec);
 		push_front(rec);
 	}
 
   ~SampledWindow(){};
-  void erase(const list<Record>::iterator &trace_iter){
+  void erase(const list<Block>::iterator &trace_iter){
     partial_trace_list.erase(trace_iter);
     wsize--;
   }
 
-  void push_front(const Record &rec){
+  void push_front(Block rec){
     partial_trace_list.push_front(rec);
     wsize++;
   }
@@ -156,17 +183,14 @@ struct SampledWindow{
 
 void print_trace(list<SampledWindow> *);
 void initialize_affinity_data();
-void sequential_update_affinity(const Record &rec, const list<SampledWindow>::iterator& grown_window_end, bool missed);
+void sequential_update_affinity(Block rec, const list<SampledWindow>::iterator& grown_window_end);
 void affinityAtExitHandler();
 
 
-bool jointFreqSameFunctionsCmp(const RecordPair& pair_left, const RecordPair& pair_right);
-bool jointFreqCountCmp(const RecordPair& pair_left, const RecordPair& pair_right);
+bool jointFreqSameFunctionsCmp(const BlockPair& pair_left, const BlockPair& pair_right);
+bool jointFreqCountCmp(const BlockPair& pair_left, const BlockPair& pair_right);
 
 bool fall_through_cmp (const bb_pair_t &left_pair, const bb_pair_t &right_pair);
-uint32_t get_fall_through_count (func_t fid, const bb_pair_t &bb_pair){
-	return fall_through_counts[fid][bb_pair.first*bb_count[fid]+bb_pair.second];
-}
 
 char * get_versioned_filename(const char * basename){
   char * versioned_name = new char [MAX_FILE_NAME];

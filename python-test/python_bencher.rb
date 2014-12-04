@@ -13,10 +13,10 @@ LOCA_INPUTS = {"django"=>"/u/rlavaee/benchmarks/performance/bm_django.py",
                "slowpickle"=>"/u/rlavaee/benchmarks/performance/bm_pickle.py pickle"}
 LOCA_ITERATIONS = {"django"=>1, "fastpickle"=>1, "mako"=>5, "nqueens"=>1, "regex_compile"=>1, "slowpickle"=>1}
 
-AllTrainBench="django fastpickle mako nqueens regex_compile slowpickle".split(' ')
-AllTrainBench="django mako nqueens".split(' ')
+#AllTrainBench="django fastpickle mako nqueens regex_compile slowpickle".split(' ')
+AllTrainBench="mako nqueens".split(' ')
 AllBench= "2to3 call_simple call_method call_method_slots call_method_unknown django float html5lib html5lib_warmup mako nbody nqueens fastpickle pickle_dict pickle_list regex_compile regex_effbot regex_v8 richards slowpickle slowunpickle slowspitfire spambayes bzr_startup hg_startup unpack_sequence unpickle_list".split(' ')
-AllTrainBench="django mako nqueens".split(' ')
+#AllTrainBench="django".split(' ')
 AllBench=AllTrainBench
 SAMPLE_RATES = {".cgc"=>0, ".abc"=>8, ".fabc"=>8, ".awabc"=>6, ".babc"=>6}
 
@@ -290,17 +290,17 @@ class PythonBenchmark
 			AllTrainBench.each do |input|
 				#`#{PYTHON} perf.py -f -v -b #{input} #{pg_prog} #{neutral_prog}` 
 				`#{pg_prog} #{LOCA_INPUTS[input]} -n 50`
-				`gprof -b -s -p #{pg_prog} gmon.out #{(File.exists?("gmon.sum"))?("gmon.sum"):("")}`
+				`gprof --no-demangle -b -s -p #{pg_prog} gmon.out #{(File.exists?("gmon.sum"))?("gmon.sum"):("")}`
 			end
 		end
 
 		@all_used_funcs={}
 
-		gprof = `gprof -b -p #{pg_prog} gmon.sum`
+		gprof = `gprof --no-demangle -b -p #{pg_prog} gmon.sum`
 		gprof.lines.each_with_index do |line,index|
-			if(index>5)
+			if(index>4)
 				prof_record = line.split
-				@all_used_funcs[prof_record[6]]=prof_record[3]
+				@all_used_funcs[prof_record[3]]=prof_record[0]
 			end
 		end
 		
@@ -352,8 +352,8 @@ class PythonBenchmark
       Dir.chdir("/u/rlavaee/benchmarks")
       [trainbench].each do |input|
         pythonbench.rebuild_optimized if(run)
-        pythonbench.run(input,".orig",".test") if(run)
-        pythonbench.run(input,".icc",".test") if(run)
+        #pythonbench.run(input,".orig",".test") if(run)
+        #pythonbench.run(input,".icc",".test") if(run)
       end
     end
   end
@@ -381,8 +381,8 @@ class PythonBenchmark
         Dir.chdir("/u/rlavaee/benchmarks")
         [trainbench].each do |input|
           pythonbench.rebuild_optimized if(train)
-          #pythonbench.run(input,".orig",".test",stress)
-          #pythonbench.run(input,".icc",".test",stress)
+          pythonbench.run(input,".orig",".test",stress)
+          pythonbench.run(input,".icc",".test",stress)
         end
       end
     end

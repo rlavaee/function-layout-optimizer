@@ -3,13 +3,13 @@
 
 int not_used_func(){
   int i;
-  for(i=0;i<1000;++i)
-    printf("salam\n");
+   printf("salam\n");
   return i;
 }
 
-int get_average(int a,int b){
-	return (a+b)/2;
+__attribute__((cdecl, noinline)) int get_average(int a,int b,int c, int d, int e, int f){
+	not_used_func();
+	return (a+b+c+d+e+f)/6;
 }
 
 

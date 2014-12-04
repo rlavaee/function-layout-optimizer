@@ -67,7 +67,8 @@ void push_into_update_queue (std::list<SampledWindow> * trace_list_to_update){
 //using google::sparse_hash_map;
 //using google::sparse_hash_set;
 //using std::tr1::hash;
-extern "C" void record_function_exec(short FuncNum){
+extern "C" void __attribute__ ((__cdecl__)) record_function_exec(short FuncNum){
+//extern "C" void  record_function_exec(short FuncNum){
 	if(prevFunc==-2)
 		return;
 	if(prevFunc==FuncNum)
@@ -835,6 +836,8 @@ static void save_affinity_environment_variables(void) {
   }
 
 }
+extern "C" void set_bb_count_for_fid(short fid, short bbid){}
+
 
 
 
@@ -859,4 +862,10 @@ extern "C" int start_call_site_tracing(short _totalFuncs) {
 
   return 1;
 }
+extern "C" int start_bb_call_site_tracing(short _totalFuncs){
+	return start_call_site_tracing(_totalFuncs);
+}
+
+
+extern "C" void initialize_post_bb_count_data(){}
 

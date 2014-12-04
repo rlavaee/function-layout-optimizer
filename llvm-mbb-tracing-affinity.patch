@@ -2,7 +2,7 @@ Index: include/llvm/Analysis/Passes.h
 ===================================================================
 --- include/llvm/Analysis/Passes.h	(revision 218178)
 +++ include/llvm/Analysis/Passes.h	(working copy)
-@@ -163,6 +163,11 @@
+@@ -163,6 +163,12 @@
    // information and prints it with -analyze.
    //
    FunctionPass *createMemDepPrinter();
@@ -11,6 +11,7 @@ Index: include/llvm/Analysis/Passes.h
 +	 * added by rlavaee
 +	 */
 +	ModulePass *createMBBTracingPreparePass();
++	ModulePass *createMainToEndPass();
  }
  
  #endif
@@ -18,7 +19,7 @@ Index: include/llvm/InitializePasses.h
 ===================================================================
 --- include/llvm/InitializePasses.h	(revision 218178)
 +++ include/llvm/InitializePasses.h	(working copy)
-@@ -265,6 +265,15 @@
+@@ -265,6 +265,16 @@
  void initializeSLPVectorizerPass(PassRegistry&);
  void initializeBBVectorizePass(PassRegistry&);
  void initializeMachineFunctionPrinterPassPass(PassRegistry&);
@@ -30,6 +31,7 @@ Index: include/llvm/InitializePasses.h
 +void initializeFunctionCallSiteTracerPass(PassRegistry&);
 +void initializeFunctionReordererPass(PassRegistry&);
 +void initializeInstCacheCountingPass(PassRegistry&);
++void initializeMainToEndPass(PassRegistry&);
 +void initializeMBBTracingPreparePass(PassRegistry&);
  }
  
@@ -38,7 +40,7 @@ Index: include/llvm/LinkAllPasses.h
 ===================================================================
 --- include/llvm/LinkAllPasses.h	(revision 218178)
 +++ include/llvm/LinkAllPasses.h	(working copy)
-@@ -154,6 +154,15 @@
+@@ -154,6 +154,16 @@
        (void) llvm::createSLPVectorizerPass();
        (void) llvm::createBBVectorizePass();
        (void) llvm::createPartiallyInlineLibCallsPass();
@@ -50,6 +52,7 @@ Index: include/llvm/LinkAllPasses.h
 +      (void) llvm::createFunctionCallSiteTracerPass();
 +      (void) llvm::createFunctionReordererPass("");
 +      (void) llvm::createInstCacheCountingPass();
++      (void) llvm::createMainToEndPass();
 +      (void) llvm::createMBBTracingPreparePass();
  
        (void)new llvm::IntervalPartition();
@@ -66,29 +69,31 @@ Index: include/llvm/Support/TargetRegistry.h
    class AsmPrinter;
    class Module;
    class MCAssembler;
-@@ -103,6 +104,10 @@
+@@ -103,6 +104,11 @@
                                                    CodeGenOpt::Level OL);
      typedef AsmPrinter *(*AsmPrinterCtorTy)(TargetMachine &TM,
                                              MCStreamer &Streamer);
 +
 +		// rlavaee
 +		typedef MachineFunctionPass *(*MBBTracingCtorTy) (TargetMachine &TM);
++		typedef MachineFunctionPass *(*JmpInsertingCtorTy) (TargetMachine &TM, StringRef MBBL);
 +
      typedef MCAsmBackend *(*MCAsmBackendCtorTy)(const Target &T,
                                                  const MCRegisterInfo &MRI,
                                                  StringRef TT,
-@@ -207,6 +212,10 @@
+@@ -207,6 +213,11 @@
      /// if registered.
      AsmPrinterCtorTy AsmPrinterCtorFn;
  
 +
 +		/// rlavaee
 +		MBBTracingCtorTy MBBTracingCtorFn;
++		JmpInsertingCtorTy JmpInsertingCtorFn;
 +
      /// MCDisassemblerCtorFn - Construction function for this target's
      /// MCDisassembler, if registered.
      MCDisassemblerCtorTy MCDisassemblerCtorFn;
-@@ -381,6 +390,14 @@
+@@ -381,6 +392,20 @@
        return AsmPrinterCtorFn(TM, Streamer);
      }
  
@@ -100,10 +105,16 @@ Index: include/llvm/Support/TargetRegistry.h
 +			return MBBTracingCtorFn(TM);
 +		}
 +
++		MachineFunctionPass *createJmpInsertingPass(TargetMachine &TM, StringRef MBBL) const{
++			if (!JmpInsertingCtorFn)
++				return 0;
++			return JmpInsertingCtorFn(TM,MBBL);
++		}
++
      MCDisassembler *createMCDisassembler(const MCSubtargetInfo &STI) const {
        if (!MCDisassemblerCtorFn)
          return 0;
-@@ -715,6 +732,12 @@
+@@ -715,6 +740,16 @@
        T.AsmPrinterCtorFn = Fn;
      }
  
@@ -112,11 +123,15 @@ Index: include/llvm/Support/TargetRegistry.h
 +		static void RegisterMBBTracing(Target &T, Target::MBBTracingCtorTy Fn) {
 +			T.MBBTracingCtorFn = Fn;
 +		}
++		
++		static void RegisterJmpInserting(Target &T, Target::JmpInsertingCtorTy Fn) {
++			T.JmpInsertingCtorFn = Fn;
++		}
 +
      /// RegisterMCDisassembler - Register a MCDisassembler implementation for
      /// the given target.
      ///
-@@ -1132,6 +1155,20 @@
+@@ -1132,6 +1167,33 @@
      }
    };
  
@@ -132,6 +147,19 @@ Index: include/llvm/Support/TargetRegistry.h
 +      return new MBBTracingImpl(TM);
 +    }
 +  };
++
++	template<class JmpInsertingImpl>
++  struct RegisterJmpInserting {
++    RegisterJmpInserting(Target &T) {
++      TargetRegistry::RegisterJmpInserting(T, &Allocator);
++    }
++
++  private:
++    static MachineFunctionPass *Allocator(TargetMachine &TM, StringRef MBBL) {
++      return new JmpInsertingImpl(TM,MBBL);
++    }
++  };
++
 +
 +
    /// RegisterMCCodeEmitter - Helper template for registering a target specific
@@ -161,12 +189,13 @@ Index: include/llvm-c/Target.h
 ===================================================================
 --- include/llvm-c/Target.h	(revision 218178)
 +++ include/llvm-c/Target.h	(working copy)
-@@ -42,6 +42,9 @@
+@@ -42,6 +42,10 @@
  typedef struct LLVMOpaqueTargetData *LLVMTargetDataRef;
  typedef struct LLVMOpaqueTargetLibraryInfotData *LLVMTargetLibraryInfoRef;
  
 +/* rlavaee */
 +void LLVMInitializeX86MBBTracing();
++void LLVMInitializeX86JmpInserting();
 +
  /* Declare all of the target-initialization functions that are available. */
  #define LLVM_TARGET(TargetName) \
@@ -175,11 +204,12 @@ Index: lib/Analysis/CMakeLists.txt
 ===================================================================
 --- lib/Analysis/CMakeLists.txt	(revision 218178)
 +++ lib/Analysis/CMakeLists.txt	(working copy)
-@@ -50,6 +50,7 @@
+@@ -50,6 +50,8 @@
    Trace.cpp
    TypeBasedAliasAnalysis.cpp
    ValueTracking.cpp
 +	MBBTracingPrepare.cpp
++	MainToEnd.cpp
    )
  
  add_dependencies(LLVMAnalysis intrinsics_gen)
@@ -269,7 +299,7 @@ Index: lib/CodeGen/Passes.cpp
 ===================================================================
 --- lib/CodeGen/Passes.cpp	(revision 218178)
 +++ lib/CodeGen/Passes.cpp	(working copy)
-@@ -27,9 +27,13 @@
+@@ -27,9 +27,16 @@
  #include "llvm/Target/TargetLowering.h"
  #include "llvm/Target/TargetSubtargetInfo.h"
  #include "llvm/Transforms/Scalar.h"
@@ -279,11 +309,14 @@ Index: lib/CodeGen/Passes.cpp
  
 +// rlavaee: enable machine block profiling
 +static cl::opt<bool> EnableMBBTracing("enable-machine-block-tracing",cl::Hidden,
-+    cl::desc("Enable Machine Block Tracing Instrumentation"));
++    cl::desc("Enable machine block tracing instrumentation"));
++// rlavaee: enable machine block reordering
++static cl::opt<std::string> MBBLayoutFile("mbb-layout",cl::Hidden,
++		cl::desc("Specifies the machine block layout"),cl::init("option-unspecified"));
  static cl::opt<bool> DisablePostRA("disable-post-ra", cl::Hidden,
      cl::desc("Disable Post Regalloc"));
  static cl::opt<bool> DisableBranchFold("disable-branch-fold", cl::Hidden,
-@@ -82,7 +86,6 @@
+@@ -82,7 +89,6 @@
  PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
                     cl::desc("Print machine instrs"),
                     cl::value_desc("pass-name"), cl::init("option-unspecified"));
@@ -291,21 +324,20 @@ Index: lib/CodeGen/Passes.cpp
  // Experimental option to run live interval analysis early.
  static cl::opt<bool> EarlyLiveIntervals("early-live-intervals", cl::Hidden,
      cl::desc("Run live interval analysis earlier in the pipeline"));
-@@ -360,6 +363,10 @@
+@@ -360,6 +366,7 @@
  /// Add common target configurable passes that perform LLVM IR to IR transforms
  /// following machine independent optimization.
  void TargetPassConfig::addIRPasses() {
-+	/*
-+	 * rlavaee: prepare the module for mbb tracing (move main to the end)
-+	 */
 +	
    // Basic AliasAnalysis support.
    // Add TypeBasedAliasAnalysis before BasicAliasAnalysis so that
    // BasicAliasAnalysis wins if they disagree. This is intended to help
-@@ -383,8 +390,11 @@
+@@ -383,8 +390,13 @@
  
    // Make sure that no unreachable blocks are instruction selected.
    addPass(createUnreachableBlockEliminationPass());
++	
++	addPass(createMainToEndPass());
 +
 +	if(EnableMBBTracing){
 +		addPass(createMBBTracingPreparePass());
@@ -315,16 +347,25 @@ Index: lib/CodeGen/Passes.cpp
  /// Turn exception handling constructs into something the code generators can
  /// handle.
  void TargetPassConfig::addPassesToHandleExceptions() {
-@@ -534,6 +544,14 @@
+@@ -534,6 +546,23 @@
    if (getOptLevel() != CodeGenOpt::None)
      addBlockPlacement();
  
 +	if(EnableMBBTracing){
 +		MachineFunctionPass * tracing = TM->getTarget().createMBBTracingPass(*TM);
 +		if(tracing==0)
-+			assert(false && "constructor is not set");
++			assert(false && "constructor is not set!");
 +		else
 +			addPass(tracing);
++	}
++
++	if(!StringRef(MBBLayoutFile.getValue()).equals("option-unspecified")){
++		MachineFunctionPass * jmpInserting = 
++			TM->getTarget().createJmpInsertingPass(*TM,StringRef(MBBLayoutFile.getValue()));
++		if(jmpInserting==0)
++			assert(false && "constructor is not set!");
++		else
++			addPass(jmpInserting);
 +	}
 +
    if (addPreEmitPass())
@@ -1505,11 +1546,12 @@ Index: tools/lto/lto.cpp
 ===================================================================
 --- tools/lto/lto.cpp	(revision 218178)
 +++ tools/lto/lto.cpp	(working copy)
-@@ -52,6 +52,7 @@
+@@ -52,6 +52,8 @@
      LLVMInitializeAllAsmParsers();
      LLVMInitializeAllAsmPrinters();
      LLVMInitializeAllDisassemblers();
 +		LLVMInitializeX86MBBTracing();
++		LLVMInitializeX86JmpInserting();
      initialized = true;
    }
  }

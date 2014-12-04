@@ -1,6 +1,7 @@
 library(ggplot2)
 library(reshape2)
-stresses <- c(1,2,4,6,8,10)
+library(grid)
+stresses <- c(1)
 windows <- c(2,4,6,8,10,12,14,20,25,30,35,40)
 big_df = data.frame()
 for(stress in stresses){
@@ -16,10 +17,11 @@ big_df.m <- melt(big_df , id=c('stress','window'),variable.name='input',value.na
 
 
 saveto <- "stress.pdf"
-pdf(file=saveto, width=7.5, height=2.8, family="CM", pointsize=9)
+pdf(file=saveto, width=2, height=2, family="CM", pointsize=9)
 p <- ggplot(big_df.m,aes(window,Speedup,group=stress,color=stress))
 p <- p + facet_grid(. ~ input)
 p <- p + geom_path()
+p <- p + theme(plot.margin = unit(c(0,0,0,0), "cm"))
 p
 
 dev.off()
