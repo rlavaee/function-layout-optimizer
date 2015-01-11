@@ -1,0 +1,7 @@
+Running mako...
+
+Report on Linux cycle3.cs.rochester.edu 3.13.7-100.fc19.x86_64 #1 SMP Mon Mar 24 21:53:16 UTC 2014 x86_64 x86_64
+Total CPU cores: 24
+
+### mako ###
+0.229652 -> 1.069787: 0.2147x slower
