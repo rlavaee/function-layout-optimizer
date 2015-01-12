@@ -121,7 +121,7 @@ struct bb_pair_hash{
 };
 
 typedef std::unordered_map <const BlockPair, uint32_t *, BlockPair_hash > JointFreqMap;
-typedef std::unordered_map <Block, uint32_t> SingleFreqMap;
+typedef std::unordered_map <Block, uint32_t*> SingleFreqMap;
 typedef std::unordered_map <const bb_pair_t, uint32_t , bb_pair_hash> FallThroughMap;
 
 

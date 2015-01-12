@@ -7,12 +7,15 @@
 #include <string.h>
 #include <vector>
 #include <unistd.h>
+#include <tgmath.h>
 #include "matching.hpp"
 
 volatile bool profiling_switch; 
 pthread_t prof_switch_th;
 volatile bool flush_trace;
 pthread_mutex_t switch_mutex;
+
+const char * profilePath = NULL;
 
 void * prof_switch_toggle(void *){
 	while(true){
@@ -107,15 +110,12 @@ void record_bb_exec(Block rec){
 			flush_trace = false;
 			return;
 		}
-			/*
+
 		uint32_t r=rand();
 		bool sampled=((r & sampleMask)==0);
-		//cerr << "sampled: "<< sampled << " and trace_size: " << trace_list_size << endl;
 
 		if(!sampled && trace_list_size==0)
 				return;
-			*/
-		bool sampled = true;
 
 		if(sampled){
 				SampledWindow sw(rec);
@@ -200,7 +200,18 @@ void print_optimal_layout(){
 				}
 		}
 
-		ofstream layout_out(get_versioned_filename("layout"));  
+		char affinityFilePath[80];
+
+		strcpy(affinityFilePath,"");
+  		if(profilePath!=NULL){
+  			strcat(affinityFilePath,profilePath);
+			strcat(affinityFilePath,"/");
+ 	 	}
+		strcat(affinityFilePath,"layout");
+		strcat(affinityFilePath,version_str);
+
+
+		ofstream layout_out(affinityFilePath);  
 
 		for(auto rec: layout)
 				layout_out << "(" << (rec>>16) << "," << (rec&0xFFFF) << ")\n";
@@ -246,8 +257,15 @@ void aggregate_affinity(){
 		   */
 
 
-		char * graphFilePath=(char*) malloc(strlen("graph")+strlen(version_str)+1);
-		strcpy(graphFilePath,"graph");
+		char * graphFilePath=(char*) malloc(80);
+
+		strcpy(graphFilePath,"");
+  		if(profilePath!=NULL){
+  			strcat(graphFilePath,profilePath);
+			strcat(graphFilePath,"/");
+ 	 	}
+		strcat(graphFilePath,"graph");
+
 		strcat(graphFilePath,version_str);
 
 
@@ -294,9 +312,17 @@ void emit_graphFile(){
 		JointFreqMap::iterator jiter;
 		SingleFreqMap::iterator siter;
 
-		char * graphFilePath=(char*) malloc(strlen("graph")+strlen(version_str)+1);
-		strcpy(graphFilePath,"graph");
+		char * graphFilePath=(char*) malloc(80);
+
+		strcpy(graphFilePath,"");
+  		if(profilePath!=NULL){
+  			strcat(graphFilePath,profilePath);
+			strcat(graphFilePath,"/");
+ 	 	}
+		strcat(graphFilePath,"graph");
+
 		strcat(graphFilePath,version_str);
+
 
 		graphFile=fopen(graphFilePath,"w+");
 		fprintf(graphFile,"MaxWindowSize:%hu\tSingleFreqEntries:%zu\tJointFreqEntries:%zu\tFallThroughPairs:%zu\n",maxWindowSize,single_freqs.size(),joint_freqs.size(),fallt_pairs);
@@ -404,7 +430,8 @@ void find_affinity_groups(){
 
 		for(vector<BlockPair>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
 				order_out << "[ (" << (iter->first >> 16) << "," << (iter->first&0xFFFF) << ") , (" << (iter->second >> 16) << "," << (iter->second&0xFFFF) << ")" << "]" << endl;
-				disjointSet::mergeFunctions(*iter);
+				//if((iter->first >> 16 ) == (iter->second >> 16))
+					disjointSet::mergeFunctions(*iter);
 		} 
 
 }
@@ -519,8 +546,8 @@ bool jointFreqCountCmp(const BlockPair &left_pair, const BlockPair &right_pair){
 		left_val = right_val = 0;
 
 		for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
-				left_val+=jointFreq_left[wsize]*(maxWindowSize-wsize);
-				right_val+=jointFreq_right[wsize]*(maxWindowSize-wsize);
+				left_val+=jointFreq_left[wsize]*((int)(log2(maxWindowSize-wsize)));
+				right_val+=jointFreq_right[wsize]*((int)(log2(maxWindowSize-wsize)));
 		}
 
 		if(left_val > right_val)
@@ -678,6 +705,8 @@ static void save_affinity_environment_variables(void) {
 		if((MaxFreqLevelEnvVar = getenv("MAX_FREQ_LEVEL")) != NULL){
 				maxFreqLevel = atoi(MaxFreqLevelEnvVar);
 		}
+
+  	profilePath = getenv("BBABC_PROF_PATH");
 
 }
 
