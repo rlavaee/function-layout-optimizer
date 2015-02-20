@@ -8,6 +8,8 @@
 #include <vector>
 #define MAXTHREADS 100
 
+const char * profilePath = NULL;
+
 short prevFunc = -2;
 long long added_lists=0;
 long long removed_lists[MAXTHREADS];
@@ -207,7 +209,13 @@ void print_optimal_layout(){
 	}
 
 	char affinityFilePath[80];
-	strcpy(affinityFilePath,"layout");
+
+	strcpy(affinityFilePath,"");
+  	if(profilePath!=NULL){
+  		strcat(affinityFilePath,profilePath);
+		strcat(affinityFilePath,"/");
+ 	 }
+	strcat(affinityFilePath,"layout");
 	strcat(affinityFilePath,version_str);
 	strcat(affinityFilePath,(affEntryCmp==affEntry1DCmp)?(".1D"):(""));
   FILE *layoutFile = fopen(affinityFilePath,"w");  
@@ -240,7 +248,10 @@ void print_optimal_layouts(){
 
 	char affinitybase[80];
 	strcpy(affinitybase,"layout.mws");
-	strcat(affinitybase,to_string(maxWindowSize).c_str());
+	char mwsize_str[10];
+	sprintf(mwsize_str, "%d", maxWindowSize);
+	strcat(affinitybase,mwsize_str);
+	//strcat(affinitybase,to_string(maxWindowSize).c_str());
 
   FILE *affinityFile = fopen(get_versioned_filename(affinitybase),"w");  
 
@@ -341,8 +352,14 @@ void aggregate_affinity(){
     }
   }
 	
-	char * graphFilePath=(char*) malloc(strlen("graph")+strlen(version_str)+1);
-  strcpy(graphFilePath,"graph");
+  char * graphFilePath=(char*) malloc(80);
+  strcpy(graphFilePath,"");
+  if(profilePath!=NULL){
+  	strcat(graphFilePath,profilePath);
+	strcat(graphFilePath,"/");
+  }
+
+  strcat(graphFilePath,"graph");
   strcat(graphFilePath,version_str);
 
   graphFile=fopen(graphFilePath,"r");
@@ -834,6 +851,8 @@ static void save_affinity_environment_variables(void) {
   if((MaxFreqLevelEnvVar = getenv("MAX_FREQ_LEVEL")) != NULL){
     maxFreqLevel = atoi(MaxFreqLevelEnvVar);
   }
+
+  profilePath = getenv("ABC_PROF_PATH");
 
 }
 extern "C" void set_bb_count_for_fid(short fid, short bbid){}

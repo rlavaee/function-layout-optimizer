@@ -66,3 +66,7 @@ Then run
     $ make test.reordered
   
 This will generate the new executable test.reordered which conforms to the code layout in "layout.abc".
+
+
+IMPORTANT: always use gcc for building, for shared libraries, because otherwise you get the infamous "overflow in relocation"
+error.

@@ -141,7 +141,7 @@ void MaxMatchSolver::RemoveCycles(){
         else if(mark[u]==color){
 					assert(victim < graph.n && victim>=0 && "bad range");
 					assert(matchedToUpper[victim]< graph.n && matchedToUpper[victim]>=0 && "not within range");
-					//cerr << "found a cycle" << endl;
+					//cerr << std::hex<< "found a cycle: victim is : (" << victim <<"," << matchedToUpper[victim] << ")\tweight: " << std::dec << min_edge << endl;
           // found a cycle: remove the victim
           matchedToLower[matchedToUpper[victim]]=-1;
           matchedToUpper[victim] = -1;

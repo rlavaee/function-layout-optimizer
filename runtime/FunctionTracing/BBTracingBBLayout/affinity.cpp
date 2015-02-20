@@ -12,6 +12,8 @@
 
 #define MAX_DIST 10
 
+vector< vector< vector<bb_t> > > ucfg;
+
 volatile bool profiling_switch; 
 pthread_t prof_switch_th;
 volatile bool flush_trace;
@@ -20,6 +22,19 @@ pthread_mutex_t switch_mutex;
 const char * profilePath = NULL;
 
 void * prof_switch_toggle(void *){
+	while(true){
+		uint32_t r=rand()%10000;
+		usleep(10000+r);
+		pthread_mutex_lock(&switch_mutex);
+		profiling_switch = false;
+		flush_trace = true;
+		pthread_mutex_unlock(&switch_mutex);
+		usleep(40000);
+		pthread_mutex_lock(&switch_mutex);
+		profiling_switch = true;
+		pthread_mutex_unlock(&switch_mutex);
+	}
+/*
 	while(true){
 		uint32_t r=rand()%20000;
 		usleep(30000+r);
@@ -31,8 +46,8 @@ void * prof_switch_toggle(void *){
 		profiling_switch = false;
 		flush_trace = true;
 		pthread_mutex_unlock(&switch_mutex);
-
 	}
+	*/
 }
 
 int DEBUG;
@@ -218,7 +233,7 @@ void print_optimal_layout(){
 		ofstream layout_out(affinityFilePath);  
 
 		for(auto rec: layout)
-				layout_out << "(" << (rec>>16) << "," << (rec&0xFFFF) << ")\n";
+				layout_out << std::hex << "(" << (rec>>16) << "," << (rec&0xFFFF) << ")\n";
 
 		layout_out.close();
 
@@ -303,8 +318,8 @@ void aggregate_affinity(){
 						}
 				}
 
-				for(uint32_t i=0; i<fall_through_pairs; ++i){
-						fscanf(graphFile,"%hx[%hx,%hx]:%u",&fid,&bbid1,&bbid2,&fallt);
+				//for(uint32_t i=0; i<fall_through_pairs; ++i){
+				while(fscanf(graphFile,"%hx[%hx,%hx]:%u",&fid,&bbid1,&bbid2,&fallt)!=EOF){
 						fall_through_counts[fid][bbid1][bbid2]+=fallt;
 				}
 				fclose(graphFile);
@@ -361,33 +376,71 @@ void emit_graphFile(){
 
 func_t cur_fid;
 
+
 /* This function builds the affinity groups based on the affinity table 
    and prints out the results */
 void find_affinity_groups(){
 
-			ofstream matching_out("matching.out");
+
+			FILE * cfg_in = fopen("cfg.out","r");
+
+			
+			func_t fid;
+			bb_t num_bbs;
+
+			ucfg.resize(totalFuncs,vector< vector< bb_t> >());
+
+			while(fscanf(cfg_in,"F#%hx:%hx\n",&fid,&num_bbs)!=EOF){
+				assert(fid<totalFuncs && "fid out of range");
+				assert(num_bbs==bb_count[fid] && "inconsistent number of bbs.");
+				ucfg[fid].resize(num_bbs,vector<bb_t>());
+				for(bb_t i=0; i<num_bbs; ++i){
+					bb_t bbid1;
+					int br;
+					assert(fscanf(cfg_in,"BB#%hx:%d\n",&bbid1,&br)==2);
+					assert(bbid1==i && "inconsistent bbid");
+					for(int j=0; j<br; ++j){
+						bb_t bbid2;
+						assert(fscanf(cfg_in,"%hx\n",&bbid2)==1);
+						ucfg[fid][bbid1].push_back(bbid2);
+					}
+				}
+			}
+
+			fclose(cfg_in);
+
+
+		ofstream matching_out("matching.out");
+
 
 		for(func_t fid=0; fid < totalFuncs; ++fid){
-				BipartiteGraph cfg(bb_count[fid]);
+				BipartiteGraph wcfg(bb_count[fid]);
 
-				cur_fid = fid;
+				//cerr << "number of out: " << ucfg[fid][0].size() << "\n";
+
 				vector<bb_pair_t> all_bb_pairs;
-				for(bb_t bbid1=0; bbid1<bb_count[fid]; ++bbid1)
-						for(bb_t bbid2=0; bbid2<bb_count[fid]; ++bbid2){
-								bb_pair_t bb_pair(bbid1,bbid2);
-								if(fall_through_counts[fid][bbid1][bbid2]>0){
-										if(bbid1!=bbid2)
-											cfg.edges[bbid1].push_back(pair<int,int>(bbid2,fall_through_counts[fid][bbid1][bbid2]));
-										fallt_pairs++;
-										/*
-										if(fall_through_counts[fid][bbid1][bbid2]>2){
-												all_bb_pairs.push_back(bb_pair_t(bbid1,bbid2));
-										}*/
-								}
+				for(bb_t bbid1=0; bbid1<bb_count[fid]; ++bbid1){
+						for(bb_t bbid2: ucfg[fid][bbid1]){
+							int total_count = fall_through_counts[fid][bbid1][bbid2] + 2/ucfg[fid][bbid1].size();
+							wcfg.edges[bbid1].push_back(pair<int,int>(bbid2, total_count));
+							if(fall_through_counts[fid][bbid1][bbid2]>0)
+								fallt_pairs++;
 						}
 
-				MaxMatchSolver matching_solver(cfg);
+
+						if(ucfg[fid][bbid1].empty())
+							for(bb_t bbid2=0; bbid2<bb_count[fid]; ++bbid2){
+								if(fall_through_counts[fid][bbid1][bbid2]>0){
+										if(bbid1!=bbid2)
+											wcfg.edges[bbid1].push_back(pair<int,int>(bbid2,fall_through_counts[fid][bbid1][bbid2]));
+										fallt_pairs++;
+								}
+							}
+				}
+
+				MaxMatchSolver matching_solver(wcfg);
 				matching_solver.Solve();
+				//cerr << std::hex << "for function: " << fid << "\n";
 				matching_solver.GetApproxMaxPathCover();
 
 
@@ -440,7 +493,8 @@ void find_affinity_groups(){
 		for(vector<BlockPair>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
 				//if((iter->first >> 16 ) == (iter->second >> 16))
 					disjointSet::mergeFunctions(*iter);
-		} 
+		}
+
 
 }
 
@@ -797,7 +851,8 @@ static void save_affinity_environment_variables(void) {
 extern "C" int start_bb_call_site_tracing(func_t _totalFuncs) {
 
 		flush_trace = false;
-		profiling_switch = false;
+		//profiling_switch = false;
+		profiling_switch = true;
 
   	pthread_create(&prof_switch_th,NULL,prof_switch_toggle, (void *) 0);
 
@@ -830,7 +885,7 @@ extern "C" void initialize_post_bb_count_data(){
 		rec_window_it = new list<SampledWindow>::iterator [bb_count_cum[totalFuncs]];
 }
 
-extern "C" void __attribute__ ((__cdecl__)) record_bb_entry(Block fid_bbid){
+extern "C" void record_bb_entry(Block fid_bbid){
 		// is checked: assert((last_bb.fid == fid) && (bbid!=0));
 		bb_t bbid = fid_bbid & 0xFFFF;
 		func_t fid = fid_bbid >> 16; 
@@ -841,14 +896,14 @@ extern "C" void __attribute__ ((__cdecl__)) record_bb_entry(Block fid_bbid){
 		pthread_mutex_unlock(&switch_mutex);
 }
 
-extern "C" void __attribute__ ((__cdecl__)) record_func_entry(Block fid_bbid){
+extern "C" void  record_func_entry(Block fid_bbid){
 		last_bb = 0;
 		pthread_mutex_lock(&switch_mutex);
 		record_bb_exec(fid_bbid);
 		pthread_mutex_unlock(&switch_mutex);
 }
 
-extern "C" void __attribute__ ((__cdecl__)) record_callsite(Block fid_bbid){
+extern "C" void  record_callsite(Block fid_bbid){
 		last_bb = fid_bbid & 0xFFFF;
 		pthread_mutex_lock(&switch_mutex);
 		record_bb_exec(fid_bbid);

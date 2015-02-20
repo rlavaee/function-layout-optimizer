@@ -16,7 +16,8 @@ SHARED_LIBRARY = 1
 # Build and install this archive.                                                                                                                  
 BUILD_ARCHIVE = 1
 override NO_INSTALL_ARCHIVES =
-CPPFLAGS=-std=c++11 -stdlib=libstdc++ -I $(HOME)/usr/include
+#CPPFLAGS=-std=c++11 -stdlib=libstdc++ -I $(HOME)/usr/include
+CPPFLAGS=-I $(HOME)/usr/include
 
 include $(LEVEL)/Makefile.common
 
