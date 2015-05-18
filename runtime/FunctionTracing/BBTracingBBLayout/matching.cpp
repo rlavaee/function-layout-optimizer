@@ -52,7 +52,8 @@ void ShortestPathSolver::Solve(){
     }
 
     changed = new_changed;
-    //cerr << "ANY_CHANGED" << any_changed << endl;
+    //cout << "ANY_CHANGED" << any_changed << endl;
+	//matching.PrintMatching();
   
   }
 
@@ -114,15 +115,15 @@ void MaxMatchSolver::Solve(){
 void MaxMatchSolver::PrintMatching(){
   for(int v=0; v< graph.n; ++v){
     if(matchedToUpper[v]!=-1)
-      cerr << "(" << matchedToUpper[v] << "," << v << ") : " << matchedToUpperWeights[v] << endl;
+      cout << "(" << matchedToUpper[v] << "," << v << ") : " << matchedToUpperWeights[v] << endl;
   }
 	 for(int v=0; v< graph.n; ++v) 
-      cerr << v << "->" << matchedToLower[v] << "\t";
+      cout << v << "->" << matchedToLower[v] << "\t";
 
-    cerr << endl;
+    cout << endl;
 
 
-	cerr << "&&&&&&&&&&&&&&&&&&&&&&&&&" << endl;
+	cout << "&&&&&&&&&&&&&&&&&&&&&&&&&" << endl;
 }
 
 void MaxMatchSolver::RemoveCycles(){
@@ -135,13 +136,13 @@ void MaxMatchSolver::RemoveCycles(){
       int min_edge = matchedToUpperWeights[u];
       int victim = u;
       while(matchedToUpper[u]!=-1){
-				//cerr << "next is: " << u << " color: " << mark[u] << endl;
+				//cout << "next is: " << u << " color: " << mark[u] << endl;
         if(mark[u]==-1)
           mark[u]=color;
         else if(mark[u]==color){
 					assert(victim < graph.n && victim>=0 && "bad range");
 					assert(matchedToUpper[victim]< graph.n && matchedToUpper[victim]>=0 && "not within range");
-					//cerr << std::hex<< "found a cycle: victim is : (" << victim <<"," << matchedToUpper[victim] << ")\tweight: " << std::dec << min_edge << endl;
+					//cout << "found a cycle: victim is : (" << victim <<"," << matchedToUpper[victim] << ")\tweight: " << std::dec << min_edge << endl;
           // found a cycle: remove the victim
           matchedToLower[matchedToUpper[victim]]=-1;
           matchedToUpper[victim] = -1;
@@ -160,7 +161,8 @@ void MaxMatchSolver::RemoveCycles(){
     }
   }
 
-	//PrintMatching();
+  //cout << "after removing cycles: " << endl;
+  //PrintMatching();
 
 }
 

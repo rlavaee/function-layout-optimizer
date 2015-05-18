@@ -1,6 +1,6 @@
 require 'fileutils'
 require 'open3'
-require 'yaml'
+#require 'yaml'
 PYTHON="python2.7"
 OPTS=[".abc",".cgc"]
 SUFFIXES=[".ni",".in"]
@@ -11,7 +11,7 @@ LOCA_INPUTS = {"django"=>"/u/rlavaee/benchmarks/performance/bm_django.py",
                "nqueens"=>"/u/rlavaee/benchmarks/performance/bm_nqueens.py",
                "regex_compile"=>"/u/rlavaee/benchmarks/performance/bm_regex_compile.py",
                "slowpickle"=>"/u/rlavaee/benchmarks/performance/bm_pickle.py pickle"}
-LOCA_ITERATIONS = {"django"=>1, "fastpickle"=>1, "mako"=>5, "nqueens"=>1, "regex_compile"=>1, "slowpickle"=>1}
+LOCA_ITERATIONS = {"django"=>1, "fastpickle"=>1, "mako"=>5, "nqueens"=>1, "regex_compile"=>1, "slowpickle"=>5}
 
 #AllTrainBench="django fastpickle mako nqueens regex_compile slowpickle".split(' ')
 AllTrainBench="mako nqueens".split(' ')
@@ -129,10 +129,13 @@ class PythonBenchmark
     FileUtils.mv("#{@@BenchRoot}/layout#{@opt}","#{@@ResultDir}/layout_#{self.bench_info}#{@opt}#{@suffix}")
   end
 
-  def run_loca(input,version,run=false)
-    loca_output_f = "#{@@ResultDir}/python2.7#{get_suffix(".orig",version)}#{@suffix}.#{input}.loca"
+  def PythonBenchmark.run_loca(input,version,run=false)
+    #loca_output_f = "#{@@ResultDir}/python2.7#{get_suffix(".orig",version)}#{@suffix}.#{input}.loca"
+    loca_output_f = "#{@@ResultDir}/#{version}.#{input}.loca"
     if(run)
-      output = `#{PIN} -o #{loca_output_f} -- #{@@PythonRoot}/python2.7#{get_suffix(".orig",version)}#{@suffix} #{LOCA_INPUTS[input]} -n #{LOCA_ITERATIONS[input]}`
+      #output = `#{PIN} -o #{loca_output_f} -- #{@@PythonRoot}/python2.7#{get_suffix(".orig",version)}#{@suffix} #{LOCA_INPUTS[input]} -n #{LOCA_ITERATIONS[input]}`
+      output = `#{PIN} -o #{loca_output_f} -- #{@@PythonRoot}/#{version} #{LOCA_INPUTS[input]} -n #{LOCA_ITERATIONS[input]}`
+      print "#{PIN} -o #{loca_output_f} -- #{@@PythonRoot}/#{version} #{LOCA_INPUTS[input]} -n #{LOCA_ITERATIONS[input]}"
       puts "ran loca for #{version}: #{output}" 
     end
     return "#{loca_output_f}.i"
@@ -260,15 +263,15 @@ class PythonBenchmark
 
   end
 
+
   def PythonBenchmark.run_loca_all(opt=nil,run=false)
     AllTrainBench.each do |trainbench|
       r_args = Array.new
       pythonbench=PythonBenchmark.new(trainbench)
-      pythonbench.suffix=".in"
-      pythonbench.mws='12'
+      pythonbench.mws='40'
       opts = (opt.nil?)?(OPTS):([opt])
       opts.each do |opt|
-        pythonbench.sr=SAMPLE_RATES[opt]
+        pythonbench.sr='4'
         pythonbench.opt = opt
         Dir.chdir("/u/rlavaee/benchmarks")
         r_args << pythonbench.run_loca(trainbench,".test",run)

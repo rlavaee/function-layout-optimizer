@@ -4,6 +4,7 @@
 #ifndef AFFINITY_HPP
 #define AFFINITY_HPP
 #include <deque>
+#include <vector>
 #include <list>
 #include <functional>
 #include <unordered_map>
@@ -11,22 +12,25 @@
 #include <set>
 #include <cstring>
 #include <ostream>
+#include <memory>
+#include "flat_map.hpp"
 
 #define MAX_FILE_NAME 30
 using namespace std;
 
-const char * version_str = ".bbabc.bbl";
+const char * version_str = ".bbabc";
 
 typedef uint16_t wsize_t;
 typedef uint16_t func_t;
 typedef uint16_t bb_t;
-func_t totalFuncs;
+func_t totalFuncs=0;
 bb_t * bb_count;
 uint32_t * bb_count_cum;
-uint32_t *** fall_through_counts;
 
 typedef pair<bb_t,bb_t> bb_pair_t;
 typedef uint32_t Block;
+
+typedef pair<bb_t,uint32_t> bb_count_t;
 
 uint32_t get_key(Block rec){
 	return bb_count_cum[rec>>16]+(rec & 0xFFFF);
@@ -120,9 +124,9 @@ struct bb_pair_hash{
   }
 };
 
-typedef std::unordered_map <const BlockPair, uint32_t *, BlockPair_hash > JointFreqMap;
+typedef std::unordered_map <BlockPair, std::vector<uint32_t>, BlockPair_hash > JointFreqMap;
 typedef std::unordered_map <Block, uint32_t*> SingleFreqMap;
-typedef std::unordered_map <const bb_pair_t, uint32_t , bb_pair_hash> FallThroughMap;
+typedef std::vector < std::vector< flat_map<bb_t,uint32_t>>> FallThroughMap;
 
 
 struct disjointSet {

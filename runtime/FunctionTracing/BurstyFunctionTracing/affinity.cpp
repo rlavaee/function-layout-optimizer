@@ -471,9 +471,9 @@ void find_affinity_groups(){
 		fprintf(stderr,"iter is %hd %hd %x\n", (*iter)->first.first, (*iter)->first.second, (*iter)->second);
 	}*/ 
 
-	comparisonFile = fopen("compare.txt","w");
+	//comparisonFile = fopen("compare.txt","w");
 	std::sort(all_affEntry_iters.begin(),all_affEntry_iters.end(),affEntryCmp);
-	fclose(comparisonFile);
+	//fclose(comparisonFile);
  
  	if(disjointSet::sets)
   	for(short i=0; i<totalFuncs; ++i){
@@ -484,17 +484,17 @@ void find_affinity_groups(){
 	for(short i=0; i<totalFuncs; ++i)
 		disjointSet::init_new_set(i);
 
-	orderFile= fopen("order.txt","w");
+	//orderFile= fopen("order.txt","w");
 
  	for(std::vector<affEntry>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
-    fprintf(orderFile,"(%d,%d)\n",iter->first,iter->second);
+    //fprintf(orderFile,"(%d,%d)\n",iter->first,iter->second);
 		//if(disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second) < 4){
     	disjointSet::mergeSets(iter->first, iter->second);
-			fprintf(orderFile,"effected\n");
+			//fprintf(orderFile,"effected\n");
 		//}
 	} 
 
-	fclose(orderFile);
+	//fclose(orderFile);
 
 }
 

@@ -9,6 +9,8 @@
 #include <unistd.h>
 #include <tgmath.h>
 #include "matching.hpp"
+#include <serialize.h>
+#include <thread>
 
 #define MAX_DIST 10
 
@@ -23,6 +25,7 @@ const char * profilePath = NULL;
 
 void * prof_switch_toggle(void *){
 	while(true){
+		cerr << "thread: " << std::this_thread::get_id() << "\n";
 		uint32_t r=rand()%10000;
 		usleep(10000+r);
 		pthread_mutex_lock(&switch_mutex);
@@ -52,8 +55,7 @@ void * prof_switch_toggle(void *){
 
 int DEBUG;
 FILE * comparisonFile, * traceFile;
-wsize_t maxWindowSize;
-size_t fallt_pairs;
+wsize_t mws;
 int sampleRateLog;
 uint32_t sampleSize;
 uint32_t sampleMask;
@@ -61,6 +63,7 @@ short maxFreqLevel;
 ofstream order_out(get_versioned_filename("order"));  
 
 JointFreqMap joint_freqs;
+FallThroughMap fall_thrus;
 
 //TODO Consider adding single freqs later on
 SingleFreqMap single_freqs;
@@ -69,7 +72,7 @@ bool * contains_func;
 list<Block>::iterator * rec_trace_it;
 list<SampledWindow>::iterator * rec_window_it;
 
-bb_t last_bb;
+unordered_map<std::thread::id,bb_t> last_bbs;
 
 list<SampledWindow> trace_list;
 
@@ -84,23 +87,29 @@ set<Block>::iterator owner_iter, owner_iter_end;
 
 FILE * graphFile, * debugFile;
 
-uint32_t * null_joint_freq = new uint32_t[maxWindowSize]();
+const vector<uint32_t>  null_joint_freq(mws,0);
 
 
-uint32_t * emplace(JointFreqMap &jfm, const BlockPair &rec_pair){
+/*
+std::vector<uint32_t>& emplace(JointFreqMap &jfm, const BlockPair &rec_pair){
 		JointFreqMap::iterator result = jfm.find(rec_pair);
-		if(result == jfm.end())
-				return (jfm[rec_pair]= new uint32_t[maxWindowSize]());
-		else
+		if(result == jfm.end()){
+				//only c++14
+				//std::unique_ptr<uint32_t[]> p = std::make_unique<uint32_t[]>(mws,0);
+				std::vector<uint32_t> p(mws,0);
+				p->reserve
+				return jfm.insert( std::pair<BlockPair, std::unique_ptr<uint32_t[]>> (rec_pair,std::move(p))).first->second;
+		}else
 				return result->second;
 }
+*/
 
 
-uint32_t * emplace(SingleFreqMap &sfm, Block rec){
+uint32_t*  emplace(SingleFreqMap &sfm, Block rec){
 		SingleFreqMap::iterator result = sfm.find(rec);
-		if(result == sfm.end())
-				return (sfm[rec]= new uint32_t[maxWindowSize]());
-		else
+		if(result == sfm.end()){
+				return (sfm[rec]= new uint32_t[mws]());
+		}else
 				return result->second;
 }
 
@@ -155,7 +164,7 @@ void record_bb_exec(Block rec){
 		if(!contains_func[rec_key]){
 				trace_list_size++;
 
-				if(trace_list_size > maxWindowSize){
+				if(trace_list_size > mws){
 						if(DEBUG>0){
 								fprintf(debugFile,"trace list overflowed: %d\n",trace_list_size);
 								print_trace(&trace_list);
@@ -201,7 +210,7 @@ void record_bb_exec(Block rec){
 }
 
 void print_optimal_layout(){
-		vector<Block> layout;
+		vector<std::pair<uint16_t,uint16_t>> layout;
 		for(func_t fid=0; fid<totalFuncs; ++fid){
 				for(bb_t bbid=0; bbid<bb_count[fid]; ++bbid){
 						Block rec = (fid << 16) | bbid;
@@ -210,7 +219,7 @@ void print_optimal_layout(){
 								for(deque<Block>::iterator it=disjointSet::sets[rec]->elements.begin(), 
 												it_end=disjointSet::sets[rec]->elements.end()
 												; it!=it_end ; ++it){
-										layout.push_back(*it);
+										layout.push_back(std::pair<uint16_t,uint16_t>((*it) >> 16,*it & 0xFFFF));
 										disjointSet::sets[*it]=0;
 								}
 								thisSet->elements.clear();
@@ -229,13 +238,38 @@ void print_optimal_layout(){
 		strcat(affinityFilePath,"layout");
 		strcat(affinityFilePath,version_str);
 
+		std::filebuf layout_buf;
+		layout_buf.open (affinityFilePath,std::ios::out);
 
-		ofstream layout_out(affinityFilePath);  
+		OutputStream layout_os(&layout_buf);
 
+		serialize(layout,layout_os);
+
+		vector< vector<std::pair<bool,bb_t>>> best_target_bbs (totalFuncs);
+
+		for(size_t i=0; i<fall_thrus.size(); ++i){
+			best_target_bbs[i].resize(fall_thrus[i].size());
+			for(size_t j=0; j<fall_thrus[i].size(); ++j){
+				best_target_bbs[i][j] = std::pair<bool,bb_t>(false,0);
+				uint32_t max = 0;
+				for(auto &p: fall_thrus[i][j])
+					if(p.second > max){
+						max = p.second;
+						best_target_bbs[i][j] = std::pair<bool,bb_t>(true,p.first);
+					}
+			}
+		}
+
+
+		serialize(best_target_bbs,layout_os);
+
+
+
+		/*
 		for(auto rec: layout)
 				layout_out << std::hex << "(" << (rec>>16) << "," << (rec&0xFFFF) << ")\n";
-
 		layout_out.close();
+		*/
 
 }
 
@@ -243,7 +277,6 @@ void print_optimal_layout(){
 /* The data allocation function (totalFuncs need to be set before entering this function) */
 void initialize_affinity_data(){
 		trace_list_size=0;
-		fallt_pairs=0;
 
 		//srand(time(NULL));
 		srand(1);
@@ -253,6 +286,28 @@ void initialize_affinity_data(){
 
 		if(DEBUG > 0)
 				debugFile = fopen("debug.txt","w");
+		
+		char * graphFilePath=(char*) malloc(80);
+
+		strcpy(graphFilePath,"");
+  		if(profilePath!=NULL){
+  			strcat(graphFilePath,profilePath);
+			strcat(graphFilePath,"/");
+ 	 	}
+		strcat(graphFilePath,"graph");
+
+		strcat(graphFilePath,version_str);
+
+
+		std::filebuf graph_buf;
+		graph_buf.open (graphFilePath,std::ios::in);
+
+		if(graph_buf.is_open()){
+			InputStream graph_is(&graph_buf);
+			joint_freqs = deserialize<JointFreqMap>(graph_is);
+			fall_thrus = deserialize<FallThroughMap>(graph_is);
+		}
+
 }
 
 void aggregate_affinity(){
@@ -262,7 +317,7 @@ void aggregate_affinity(){
 		
 		for(jiter=joint_freqs.begin(); jiter!=joint_freqs.end(); ++jiter){
 				uint32_t * freq_array= jiter->second;	  
-				for(wsize_t wsize=1;wsize<maxWindowSize;++wsize){
+				for(wsize_t wsize=1;wsize<mws;++wsize){
 						freq_array[wsize]+=freq_array[wsize-1];
 				}
 		}
@@ -270,7 +325,7 @@ void aggregate_affinity(){
 
 		for(siter=single_freqs.begin(); siter!=single_freqs.end(); ++siter){
 				uint32_t * freq_array= siter->second;	  
-				for(wsize_t wsize=1;wsize<maxWindowSize;++wsize){
+				for(wsize_t wsize=1;wsize<mws;++wsize){
 						freq_array[wsize]+=freq_array[wsize-1];
 				}
 		}
@@ -288,42 +343,6 @@ void aggregate_affinity(){
 		strcat(graphFilePath,"graph");
 
 		strcat(graphFilePath,version_str);
-
-
-		graphFile=fopen(graphFilePath,"r");
-		if(graphFile!=NULL){
-				uint16_t fid,bbid1,bbid2;
-				uint32_t fallt;
-				wsize_t file_mwsize;
-				size_t sfreq_size,jfreq_size,fall_through_pairs;
-				fscanf(graphFile,"MaxWindowSize:%hu\tSingleFreqEntries:%zu\tJointFreqEntries:%zu\tFallThroughPairs:%zu\n",&file_mwsize,&sfreq_size,&jfreq_size,&fall_through_pairs);
-				Block r1,r2;
-				uint32_t sfreq,jfreq;
-				for(uint32_t i=0; i<sfreq_size; ++i){
-						fscanf(graphFile,"%x:",&r1);
-						uint32_t * freq_array = emplace(single_freqs,r1);
-						for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
-								fscanf(graphFile,"%u ",&sfreq);
-								freq_array[wsize]+=sfreq;
-						}
-				}
-
-				for(uint32_t i=0; i<jfreq_size; ++i){
-						fscanf(graphFile,"[%x,%x]:",&r1,&r2);
-						BlockPair rec_pair=BlockPair(r1,r2);
-						uint32_t * freq_array = emplace(joint_freqs,rec_pair);
-						for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
-								fscanf(graphFile,"%u ",&jfreq);
-								freq_array[wsize] +=jfreq;
-						}
-				}
-
-				//for(uint32_t i=0; i<fall_through_pairs; ++i){
-				while(fscanf(graphFile,"%hx[%hx,%hx]:%u",&fid,&bbid1,&bbid2,&fallt)!=EOF){
-						fall_through_counts[fid][bbid1][bbid2]+=fallt;
-				}
-				fclose(graphFile);
-		}
 }
 
 
@@ -344,34 +363,19 @@ void emit_graphFile(){
 
 		strcat(graphFilePath,version_str);
 
+		std::filebuf graph_buf;
+		graph_buf.open (graphFilePath,std::ios::out);
 
-		graphFile=fopen(graphFilePath,"w+");
-		fprintf(graphFile,"MaxWindowSize:%hu\tSingleFreqEntries:%zu\tJointFreqEntries:%zu\tFallThroughPairs:%zu\n",maxWindowSize,single_freqs.size(),joint_freqs.size(),fallt_pairs);
+		OutputStream graph_os(&graph_buf);
+		serialize(joint_freqs,graph_os);
+		serialize(fall_thrus,graph_os);
 
-		for(siter=single_freqs.begin(); siter!=single_freqs.end(); ++siter){
-				fprintf(graphFile,"%x:",siter->first);
-				for(wsize_t wsize=0; wsize<maxWindowSize;++wsize)
-						fprintf(graphFile,"%u ",siter->second[wsize]);
-				fprintf(graphFile,"\n");
-
-		}
-
-		for(jiter=joint_freqs.begin(); jiter!=joint_freqs.end(); ++jiter){
-				fprintf(graphFile,"[%x,%x]:",jiter->first.first,jiter->first.second);
-				for(wsize_t wsize=0;wsize<maxWindowSize;++wsize)
-						fprintf(graphFile,"%u ",jiter->second[wsize]);
-				fprintf(graphFile,"\n");
-		}
-
-		for(func_t fid=0; fid < totalFuncs; ++fid)
-				for(bb_t bbid1=0; bbid1<bb_count[fid]; ++bbid1)
-						for(bb_t bbid2=0; bbid2<bb_count[fid]; ++bbid2)
-								if(fall_through_counts[fid][bbid1][bbid2]>0)
-										fprintf(graphFile,"%hx[%hx,%hx]:%u\n",fid,bbid1,bbid2,fall_through_counts[fid][bbid1][bbid2]);
-
-
-
-		fclose(graphFile);
+		/*
+		for(size_t i=0; i<fall_thrus.size(); ++i)
+			for(size_t j=0; j<fall_thrus[i].size(); ++j)
+				for(auto &p: fall_thrus[i][j])
+					cout << i <<"[" << j <<"," << p.first << "]:" << p.second << "\n";
+		*/
 }
 
 func_t cur_fid;
@@ -412,55 +416,41 @@ void find_affinity_groups(){
 
 		ofstream matching_out("matching.out");
 
+		ofstream wcfg_out("wcfg.out");
+
 
 		for(func_t fid=0; fid < totalFuncs; ++fid){
+				wcfg_out << "function is: " << fid << endl;
+				//cout << "function is: " << fid << endl;
 				BipartiteGraph wcfg(bb_count[fid]);
 
-				//cerr << "number of out: " << ucfg[fid][0].size() << "\n";
 
 				vector<bb_pair_t> all_bb_pairs;
 				for(bb_t bbid1=0; bbid1<bb_count[fid]; ++bbid1){
 						for(bb_t bbid2: ucfg[fid][bbid1]){
-							int total_count = fall_through_counts[fid][bbid1][bbid2] + 2/ucfg[fid][bbid1].size();
+
+							auto res = fall_thrus[fid][bbid1].find(bbid2);
+							uint32_t fallt = (res==fall_thrus[fid][bbid1].end())?(0):(res->second);
+							int total_count = fallt + 2/ucfg[fid][bbid1].size();
 							wcfg.edges[bbid1].push_back(pair<int,int>(bbid2, total_count));
-							if(fall_through_counts[fid][bbid1][bbid2]>0)
-								fallt_pairs++;
+							wcfg_out << "ucfg edge : (" << bbid1  << "," << bbid2 << "): " << total_count << endl;
 						}
 
 
 						if(ucfg[fid][bbid1].empty())
-							for(bb_t bbid2=0; bbid2<bb_count[fid]; ++bbid2){
-								if(fall_through_counts[fid][bbid1][bbid2]>0){
-										if(bbid1!=bbid2)
-											wcfg.edges[bbid1].push_back(pair<int,int>(bbid2,fall_through_counts[fid][bbid1][bbid2]));
-										fallt_pairs++;
+								for(auto &p: fall_thrus[fid][bbid1]){
+										wcfg.edges[bbid1].push_back(p);
+										wcfg_out << "no ucfg edge : (" << bbid1  << "," << p.first << "): " << p.second << endl;
 								}
-							}
 				}
 
 				MaxMatchSolver matching_solver(wcfg);
 				matching_solver.Solve();
-				//cerr << std::hex << "for function: " << fid << "\n";
 				matching_solver.GetApproxMaxPathCover();
 
 
 
 
-			/*
-				for(bb_t bbid=0; bbid<bb_count[fid]; ++bbid)
-						disjointSet::init_new_set(fid<<16 | bbid);
-				sort(all_bb_pairs.begin(), all_bb_pairs.end(), fall_through_cmp);
-
-
-				for(auto bb_pair: all_bb_pairs){
-						order_out << "[(" << fid << "," << bb_pair.first << "),(" << fid << "," << bb_pair.second << ")] ->" << fall_through_counts[fid][bb_pair.first][bb_pair.second] <<endl;
-						disjointSet::mergeBasicBlocksSameFunction(fid,bb_pair);
-				}
-
-			*/
-
-
-			//cerr << "This cfg has " << bb_count[fid] << " bbs!" << endl;
 			
 
 				for(auto path: matching_solver.pathCover){
@@ -469,7 +459,7 @@ void find_affinity_groups(){
 					for(auto bbid: path){
 						Block bb = fid<<16 | bbid;
 						if(path.size() > 1)
-							matching_out << std::hex << "(" << fid << "," << bbid <<")" << "\t"; 
+							matching_out << "(" << fid << "," << bbid <<")" << "\t"; 
 						disjointSet::sets[first_bb]->elements.push_back(bb);
 						disjointSet::sets[bb]=disjointSet::sets[first_bb];
 					}
@@ -480,6 +470,7 @@ void find_affinity_groups(){
 		}
 
 			matching_out.close();
+			wcfg_out.close();
 
 
 
@@ -502,6 +493,10 @@ void find_affinity_groups(){
 void affinityAtExitHandler(){
 		if(DEBUG>0)
 				fclose(debugFile);
+		cerr << "came here\n";
+		cerr << "came here\n";
+		cerr << "came here\n";
+		cerr << "came here\n";
 
 		aggregate_affinity();
 		find_affinity_groups();
@@ -553,7 +548,11 @@ void sequential_update_affinity(Block rec, const list<SampledWindow>::iterator &
 
 						if(get_paired(oldRec,rec)){
 								BlockPair rec_pair(oldRec,rec);
-								emplace(joint_freqs,rec_pair)[top_wsize-2]++;
+								auto res = joint_freqs.emplace(std::piecewise_construct,
+														std::forward_as_tuple(rec_pair),
+														std::forward_as_tuple(mws,0));
+								res.first->second[top_wsize-2]++;
+								//emplace(joint_freqs,rec_pair)[top_wsize-2]++;
 						}
 
 						owner_iter++;
@@ -566,7 +565,7 @@ void sequential_update_affinity(Block rec, const list<SampledWindow>::iterator &
 } 
 
 
-uint32_t * GetWithDef(JointFreqMap&m, const BlockPair &key, uint32_t * defval) {
+const std::vector<uint32_t>& GetWithDef(JointFreqMap &m, const BlockPair &key, const std::vector<uint32_t>& defval) {
 		JointFreqMap::const_iterator it = m.find( key );
 		if ( it == m.end() ) {
 				return defval;
@@ -581,7 +580,7 @@ uint32_t * GetWithDef(JointFreqMap&m, const BlockPair &key, uint32_t * defval) {
    uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
    uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
 
-   for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
+   for(wsize_t wsize=0; wsize<mws; ++wsize){
    uint32_t left_val = jointFreq_left[wsize];
    uint32_t right_val = jointFreq_right[wsize];
 
@@ -601,15 +600,15 @@ uint32_t * GetWithDef(JointFreqMap&m, const BlockPair &key, uint32_t * defval) {
 
 bool jointFreqCountCmp(const BlockPair &left_pair, const BlockPair &right_pair){
 
-		uint32_t * jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
-		uint32_t * jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
+		auto &jointFreq_left = GetWithDef(joint_freqs, left_pair, null_joint_freq);
+		auto &jointFreq_right = GetWithDef(joint_freqs, right_pair, null_joint_freq);
 
 		int left_val, right_val;
 		left_val = right_val = 0;
 
-		for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
-				left_val+=jointFreq_left[wsize]*((int)(log2(maxWindowSize-wsize)));
-				right_val+=jointFreq_right[wsize]*((int)(log2(maxWindowSize-wsize)));
+		for(wsize_t wsize=0; wsize<mws; ++wsize){
+				left_val+=jointFreq_left[wsize]*((int)(log2(mws-wsize)));
+				right_val+=jointFreq_right[wsize]*((int)(log2(mws-wsize)));
 		}
 
 		if(left_val > right_val)
@@ -618,7 +617,7 @@ bool jointFreqCountCmp(const BlockPair &left_pair, const BlockPair &right_pair){
 				return false;
 		/*
 		   for(freqlevel=maxFreqLevel-1; freqlevel>=0; --freqlevel){
-		   for(wsize_t wsize=0; wsize<maxWindowSize; ++wsize){
+		   for(wsize_t wsize=0; wsize<mws; ++wsize){
 		   uint32_t left_val = jointFreq_left[wsize];
 		   uint32_t right_val = jointFreq_right[wsize];
 		   if((maxFreqLevel*(jointFreq_left[wsize]) > freqlevel*sum_freqs[ae_left.first][wsize]) && 
@@ -647,9 +646,6 @@ bool jointFreqCountCmp(const BlockPair &left_pair, const BlockPair &right_pair){
 
 }
 
-bool fall_through_cmp (const bb_pair_t &left_pair, const bb_pair_t &right_pair){
-		return fall_through_counts[cur_fid][left_pair.first][left_pair.second] > fall_through_counts[cur_fid][right_pair.first][right_pair.second];
-}
 
 void disjointSet::mergeBasicBlocksSameFunction(func_t fid, const bb_pair_t &bb_pair){
 		if(bb_pair.second==0 || bb_pair.first == bb_pair.second)
@@ -678,7 +674,7 @@ void disjointSet::mergeSets(Block left_rec, Block right_rec){
 		if(left_set==right_set)
 				return;
 
-		order_out << std::hex << "[ (" << (left_rec >> 16) << "," << (left_rec&0xFFFF) << ") , (" << (right_rec >> 16) << "," << (right_rec&0xFFFF) << ")" << "]\t";
+		order_out << "[ (" << (left_rec >> 16) << "," << (left_rec&0xFFFF) << ") , (" << (right_rec >> 16) << "," << (right_rec&0xFFFF) << ")" << "]\t";
 
 		order_out << std::dec << "sizes:\t" << left_set->elements.size() << "\t" << right_set->elements.size() << endl;
 
@@ -831,7 +827,7 @@ static void save_affinity_environment_variables(void) {
 		}
 
 		if((MaxWindowSizeEnvVar = getenv("MAX_WINDOW_SIZE")) != NULL){
-				maxWindowSize = atoi(MaxWindowSizeEnvVar)-1;
+				mws = atoi(MaxWindowSizeEnvVar)-1;
 		}
 
 		if((MaxFreqLevelEnvVar = getenv("MAX_FREQ_LEVEL")) != NULL){
@@ -860,7 +856,7 @@ extern "C" int start_bb_call_site_tracing(func_t _totalFuncs) {
 		totalFuncs = _totalFuncs;
 		bb_count = new bb_t[totalFuncs];
 		bb_count_cum = new uint32_t[totalFuncs+1]();
-		fall_through_counts = new uint32_t ** [totalFuncs];
+		fall_thrus.resize(totalFuncs);
 		initialize_affinity_data();
 		/* Set up the atexit handler. */
 		atexit (affinityAtExitHandler);
@@ -870,9 +866,7 @@ extern "C" int start_bb_call_site_tracing(func_t _totalFuncs) {
 
 extern "C" void set_bb_count_for_fid(func_t fid, bb_t bbid){
 		bb_count[fid]=bbid;
-		fall_through_counts[fid]=new uint32_t* [bbid];
-		for(int i=0; i<bbid; ++i)
-				fall_through_counts[fid][i] = new uint32_t [bbid]();
+		fall_thrus[fid].resize(bbid);
 }
 
 extern "C" void initialize_post_bb_count_data(){
@@ -886,25 +880,45 @@ extern "C" void initialize_post_bb_count_data(){
 }
 
 extern "C" void record_bb_entry(Block fid_bbid){
+
+		if(totalFuncs==0)
+			return;
+		pthread_mutex_lock(&switch_mutex);
 		// is checked: assert((last_bb.fid == fid) && (bbid!=0));
 		bb_t bbid = fid_bbid & 0xFFFF;
-		func_t fid = fid_bbid >> 16; 
-		fall_through_counts[fid][last_bb][bbid]++;
-		last_bb = bbid;
-		pthread_mutex_lock(&switch_mutex);
+		func_t fid = fid_bbid >> 16;
+
+		std::thread::id tid = std::this_thread::get_id();
+
+		auto res = fall_thrus[fid][last_bbs[tid]].emplace(bbid,1);
+		//cerr << fid << "[" << last_bb << "," << bbid << "]\n";
+
+		if(!res.second)
+			res.first->second++;
+
+		//cout << fid << "[" << last_bb << "," << bbid << "]:" << res.first->second << "\n";
+
+		last_bbs[tid]= bbid;
 		record_bb_exec(fid_bbid);
 		pthread_mutex_unlock(&switch_mutex);
 }
 
 extern "C" void  record_func_entry(Block fid_bbid){
-		last_bb = 0;
+
+		if(totalFuncs==0)
+			return;
+		std::thread::id tid = std::this_thread::get_id();
+		last_bbs[tid] = 0;
 		pthread_mutex_lock(&switch_mutex);
 		record_bb_exec(fid_bbid);
 		pthread_mutex_unlock(&switch_mutex);
 }
 
 extern "C" void  record_callsite(Block fid_bbid){
-		last_bb = fid_bbid & 0xFFFF;
+		if(totalFuncs==0)
+			return;
+		std::thread::id tid = std::this_thread::get_id();
+		last_bbs[tid] = fid_bbid & 0xFFFF;
 		pthread_mutex_lock(&switch_mutex);
 		record_bb_exec(fid_bbid);
 		pthread_mutex_unlock(&switch_mutex);
