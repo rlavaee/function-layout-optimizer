@@ -6,18 +6,39 @@
 #include <boost/lockfree/queue.hpp>
 #include <string.h>
 #include <vector>
+#include <atomic>
+#include <iostream>
+#include <linux/unistd.h>
+#include <unistd.h>
+#include <sys/syscall.h>
 #define MAXTHREADS 100
 
+pid_t gettid( void )
+{
+		return syscall( __NR_gettid );
+}
+
+std::atomic<pid_t> prof_th;
 volatile bool profiling_switch; 
 pthread_t prof_switch_th;
 volatile bool flush_trace;
 pthread_mutex_t switch_mutex;
+
+extern "C" bool do_exchange(){
+	pid_t cur_pid = gettid();
+	//std::cerr << "cur_pid is: " << cur_pid << " and prof_th is: " << prof_th.load() << "\n";
+	if(prof_th.load()==cur_pid)
+		return true;
+	pid_t free_th = -1;
+	return prof_th.compare_exchange_strong(free_th,cur_pid);
+}
 
 void * prof_switch_toggle(void *){
 	while(true){
 		usleep(40000);
 		pthread_mutex_lock(&switch_mutex);
 		profiling_switch = true;
+		prof_th.store(-1);
 		pthread_mutex_unlock(&switch_mutex);
 		usleep(10000);
 		pthread_mutex_lock(&switch_mutex);
@@ -484,10 +505,10 @@ void find_affinity_groups(){
 	for(short i=0; i<totalFuncs; ++i)
 		disjointSet::init_new_set(i);
 
-	//orderFile= fopen("order.txt","w");
+	orderFile= fopen("order.abc","w");
 
  	for(std::vector<affEntry>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
-    //fprintf(orderFile,"(%d,%d)\n",iter->first,iter->second);
+    	fprintf(orderFile,"(%d,%d)\n",iter->first,iter->second);
 		//if(disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second) < 4){
     	disjointSet::mergeSets(iter->first, iter->second);
 			//fprintf(orderFile,"effected\n");

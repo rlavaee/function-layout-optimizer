@@ -24,4 +24,4 @@ $(BBABC_TR): $(OBJS)
 	clang++ -g  -Wl,--plugin-opt,--debug-pass=Details -Wl,--plugin-opt,-print-after-all -Wl,--plugin-opt,-enable-machine-block-tracing -flto $(OBJS) -L$(LLVM_LIBS) -lbb_call_site_tracing_rt -O2 -o $@ -lpthread -v 2> debug.bbabc.out
 
 $(ABC_TR): $(OBJS)
-	clang++ -g  -Wl,--plugin-opt,-enable-function-tracing -Wl,--plugin-opt,-enable-bursty-tracing -flto $(OBJS) -L$(LLVM_LIBS) -lbursty_function_tracing_rt -O2 -o $@ -lpthread -v 2> debug.abc.out
+	clang++ -g  -Wl,--plugin-opt,-enable-function-tracing -Wl,--plugin-opt,-enable-bursty-tracing -flto $(OBJS) -L$(LLVM_LIBS) -lbursty_function_tracing_rt -O2 -o $@ -lpthread -v 2> debug.abc.out 
