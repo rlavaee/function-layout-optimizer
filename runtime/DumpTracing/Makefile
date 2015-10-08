@@ -7,22 +7,18 @@
 #
 ##===----------------------------------------------------------------------===##
 
-LEVEL = ../../..
+LEVEL = ../..
 
-LIBRARYNAME = call_edge_tracing_rt
+LIBRARYNAME = dump_trace_rt
 LINK_LIBS_IN_SHARED = 1
 SHARED_LIBRARY = 1
 
 # Build and install this archive.                                                                                                                  
 BUILD_ARCHIVE = 1
 override NO_INSTALL_ARCHIVES =
-#CPPFLAGS=-std=c++11 -stdlib=libstdc++
-CPPFLAGS=-std=c++0x -I $(HOME)/usr/local/include
-
-#CFLAGS=-std=c+11 -stdlib=libc++
-#ifeq ($(OS),Darwin)
-#LDFLAGS=-lc++
-#endif
+CPPFLAGS=-std=c++0x -I $(HOME)/usr/include -g
+#CPPFLAGS=-std=c++11 -stdlib=libstdc++ -I $(HOME)/usr/include
+#CPPFLAGS=-I $(HOME)/usr/include
 
 include $(LEVEL)/Makefile.common
 

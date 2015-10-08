@@ -13,7 +13,8 @@
 #include <cstring>
 #include <ostream>
 #include <memory>
-#include "flat_map.hpp"
+#include <boost/container/flat_map.hpp>
+#include <boost/unordered_map.hpp>
 
 #define MAX_FILE_NAME 30
 using namespace std;
@@ -124,9 +125,9 @@ struct bb_pair_hash{
   }
 };
 
-typedef std::unordered_map <BlockPair, std::vector<uint32_t>, BlockPair_hash > JointFreqMap;
+typedef boost::unordered_map <BlockPair, std::vector<uint32_t>, BlockPair_hash > JointFreqMap;
 typedef std::unordered_map <Block, uint32_t*> SingleFreqMap;
-typedef std::vector < std::vector< flat_map<bb_t,uint32_t>>> FallThroughMap;
+typedef std::vector < std::vector< boost::container::flat_map<bb_t,uint32_t>>> FallThroughMap;
 
 
 struct disjointSet {

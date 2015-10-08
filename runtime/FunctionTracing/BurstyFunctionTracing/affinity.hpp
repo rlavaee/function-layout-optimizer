@@ -12,12 +12,15 @@
 #include <cstring>
 using namespace std;
 
+FILE * graphFile, * debugFile, * orderFile, *comparisonFile;
+
 short totalFuncs, maxWindowSize;
 const char * version_str=".abc";
 const char * one_dim_version=".1D";
 const char * two_dim_version_c="";
 const char * two_dim_version_l=".2Dl";
 
+short * bb_count;
 
 struct affEntry{
   short first,second;
@@ -63,23 +66,39 @@ struct disjointSet{
 struct disjointSet {
 	static disjointSet ** sets;
 	std::deque<short> elements;
+	int total_bbs;
 	size_t size(){ return elements.size();}
-	static void mergeSets(disjointSet *, disjointSet *);
-	static void mergeSets(short id1, short id2){
-		if(sets[id1]!=sets[id2])
-			mergeSets(sets[id1],sets[id2]);
-	}
+	static void mergeSets(short id1, short id2);
 	
 	static void init_new_set(short id){
 		sets[id]= new disjointSet();
 		sets[id]->elements.push_back(id);
+		sets[id]->total_bbs=bb_count[id];
+	}
+
+
+	static int get_dist(short id){
+		deque<short>::iterator it=find(sets[id]->elements.begin(),sets[id]->elements.end(),id);
+		int dist = 0;
+		for(deque<short>::iterator _it = sets[id]->elements.begin(); _it!=it; ++_it)
+			dist+= bb_count[*_it];
+		return dist;
 	}
 
 	static int get_min_index(short id){
-		deque<short>::iterator it=find(sets[id]->elements.begin(),sets[id]->elements.end(),id);
-		int index=min(sets[id]->elements.end()-it-1,it-sets[id]->elements.begin());
-		assert(index>=0 && (unsigned long)index<=(sets[id]->elements.size()-1)/2);
-		return index;
+		int dist = get_dist(id);
+		int min_dist = std::min(sets[id]->total_bbs-dist-bb_count[id],dist);
+		return min_dist;
+		//int index=min(sets[id]->elements.end()-it-1,it-sets[id]->elements.begin());
+		//assert(index>=0 && (unsigned long)index<=(sets[id]->elements.size()-1)/2);
+		//return index;
+	}
+
+	static void print_layout(short id){
+		for(auto fid: sets[id]->elements)
+			fprintf(orderFile,"%d ",fid);
+
+		fprintf(orderFile,"\n");
 	}
 
 	static void deallocate(short id){
@@ -115,6 +134,8 @@ void affinityAtExitHandler();
 //bool affEntryCmp(const affEntry, const affEntry);
 bool (*affEntryCmp)(const affEntry, const affEntry);
 bool affEntry1DCmp(const affEntry, const affEntry);
+bool affEntrySumCmp(const affEntry, const affEntry);
+bool affEntrySizeCmp(const affEntry, const affEntry);
 bool affEntry2DCmp(const affEntry, const affEntry);
 //void record_function_exec(short);
 

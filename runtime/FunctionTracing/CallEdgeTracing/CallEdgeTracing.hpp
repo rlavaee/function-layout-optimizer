@@ -5,6 +5,8 @@
 #include <algorithm>
 
 using namespace std;
+
+FILE * orderFile;
 //using google::sparse_hash_map;
 short totalFuncs;
 
@@ -19,6 +21,7 @@ struct shortpair_hash{
 };
 
 shortpair make_pair(short s1,short s2){
+	//return shortpair(s1,s2);
 	return (s1<s2)?(shortpair(s1,s2)):(shortpair(s2,s1));
 }
 struct eqshortpair{
@@ -48,6 +51,16 @@ struct disjointSet {
 		sets[id]= new disjointSet();
 		sets[id]->elements.push_back(id);
 	}
+
+
+	static void print_layout(short id){
+		for(auto fid: sets[id]->elements)
+			fprintf(orderFile,"%d ",fid);
+
+		fprintf(orderFile,"\n");
+	}
+
+
 	
 	static int get_min_index(short id){
 		deque<short>::iterator it=find(sets[id]->elements.begin(),sets[id]->elements.end(),id);

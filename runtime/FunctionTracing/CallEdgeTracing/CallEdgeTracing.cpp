@@ -11,6 +11,8 @@ using namespace std;
 
 CGMap * cg_edges;
 
+FILE * cg_trace;
+
 
 void read_graph(){
 		FILE * graphFile=fopen("graph.cgc","r");
@@ -127,6 +129,8 @@ extern "C" void trace_call_edge(short caller, short callee){
               (*cg_edges)[call_entry]++;
 			//fprintf(stderr,"the result is %d\n",cg_edges[call_entry]);
           }
+	if(cg_trace)
+	fprintf(cg_trace,"%d ",callee);
 }
 
 void print_optimal_layout(){
@@ -178,11 +182,18 @@ void find_optimal_layout(){
 	for(short i=0; i<totalFuncs; ++i)
 		disjointSet::init_new_set(i);
 
+	orderFile= fopen("order.cgc","w");
 	for(std::vector<shortpair>::iterator it=all_cg_edges.begin(); it!=all_cg_edges.end(); ++it){
+    	fprintf(orderFile,"(%d,%d)\n",it->first,it->second);
 		//printf("considering edge (%d,%d) -> %d\n",all_cg_edges[cge].first.first,all_cg_edges[cge].first.second, all_cg_edges[cge].second);
-		if(disjointSet::get_min_index(it->first)+disjointSet::get_min_index(it->second) < 10)
+		if(disjointSet::get_min_index(it->first)+disjointSet::get_min_index(it->second) < 10){
 			disjointSet::mergeSets(it->first,it->second);
+			disjointSet::print_layout(it->first);
+			fprintf(orderFile,"effected\n");
+		}
 	}
+
+	fclose(orderFile);
 
 
 }
@@ -191,17 +202,20 @@ void do_exit(){
 	find_optimal_layout();
 	print_optimal_layout();
 	write_graph();
+	fclose(cg_trace);
 	//cg_edges->serialize(CGSerializer(),cg_file);
 	//fprintf(stderr,"sent to file\n");
 	//fclose(cg_file);
 	
 }
 
+extern "C" void set_bb_count_for_fid(short,short){}
 
-extern "C" void do_init(short _totalFuncs){
+extern "C" void start_call_edge_tracing(short _totalFuncs){
 	cg_edges = new CGMap();
 	totalFuncs=_totalFuncs;
 	read_graph();
+	cg_trace = fopen("cg_trace.txt","w");
 
 	//FILE * cg_file=fopen("graph.cgc","r");
 	//if(cg_file){
@@ -237,4 +251,5 @@ bool CGECmp(const shortpair &s1, const shortpair &s2){
 	return (s1.second > s2.second);
 
 }
+
 

@@ -26,11 +26,12 @@ pthread_mutex_t switch_mutex;
 
 extern "C" bool do_exchange(){
 	pid_t cur_pid = gettid();
-	//std::cerr << "cur_pid is: " << cur_pid << " and prof_th is: " << prof_th.load() << "\n";
 	if(prof_th.load()==cur_pid)
 		return true;
 	pid_t free_th = -1;
-	return prof_th.compare_exchange_strong(free_th,cur_pid);
+	bool result= prof_th.compare_exchange_strong(free_th,cur_pid);
+	//std::cerr << "cur_pid is: " << cur_pid << " and prof_th is: " << prof_th.load() << "\n";
+	return result;
 }
 
 void * prof_switch_toggle(void *){
@@ -38,9 +39,10 @@ void * prof_switch_toggle(void *){
 		usleep(40000);
 		pthread_mutex_lock(&switch_mutex);
 		profiling_switch = true;
+		//fprintf(stderr,"for this period prof_th was: %d\n",prof_th.load());
 		prof_th.store(-1);
 		pthread_mutex_unlock(&switch_mutex);
-		usleep(10000);
+		usleep(100000);
 		pthread_mutex_lock(&switch_mutex);
 		profiling_switch = false;
 		flush_trace = true;
@@ -50,6 +52,7 @@ void * prof_switch_toggle(void *){
 }
 
 const char * profilePath = NULL;
+
 
 short prevFunc = -2;
 long long added_lists=0;
@@ -92,7 +95,6 @@ std::list<short>::iterator tl_trace_iter;
 uint32_t ** freqs[MAXTHREADS];
 uint32_t ** sum_freqs;
 
-FILE * graphFile, * debugFile, * orderFile, *comparisonFile;
 
 
 
@@ -114,7 +116,10 @@ void push_into_update_queue (std::list<SampledWindow> * trace_list_to_update){
 
 inline void record_execution(short FuncNum){
 
+	//std::cerr << "recording " << FuncNum << "\n";
+
 	if(flush_trace){
+	print_trace(&trace_list);
 		while(!trace_list.empty()){
 	    	std::list<short> * last_window_trace_list= &trace_list.back().partial_trace_list;
       		trace_list_size-=last_window_trace_list->size();
@@ -341,11 +346,13 @@ void initialize_affinity_data(){
 	nconsumers=0;
   trace_list_size=0;
 
-	if(DEBUG>0)
+	//if(DEBUG>0)
   	debugFile=fopen("debug.txt","w");
 
   //srand(time(NULL));
 	srand(1);
+
+	bb_count = new short[totalFuncs]();
 
  // freqs = new int* [totalFuncs];
 
@@ -509,10 +516,12 @@ void find_affinity_groups(){
 
  	for(std::vector<affEntry>::iterator iter=all_affEntry_iters.begin(); iter!=all_affEntry_iters.end(); ++iter){
     	fprintf(orderFile,"(%d,%d)\n",iter->first,iter->second);
-		//if(disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second) < 4){
+			int min_ind;
+		if((min_ind = disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second)) < 20){
     	disjointSet::mergeSets(iter->first, iter->second);
-			//fprintf(orderFile,"effected\n");
-		//}
+			disjointSet::print_layout(iter->first);
+			fprintf(orderFile,"effected: %d \n",min_ind);
+		}
 	} 
 
 	//fclose(orderFile);
@@ -524,7 +533,7 @@ void affinityAtExitHandler(){
   //free immature windows
   //list_remove_all(&window_list,NULL,free);
 	
-	if(DEBUG>0)
+	//if(DEBUG>0)
 		fclose(debugFile);
 
  	for(int i=0; i<nconsumers; ++i){
@@ -549,7 +558,7 @@ void affinityAtExitHandler(){
 	aggregate_affinity();
 	
 
-	affEntryCmp=affEntry2DCmp;
+	affEntryCmp=affEntrySumCmp;
 	find_affinity_groups();
   print_optimal_layout();
 
@@ -735,6 +744,45 @@ uint32_t * GetWithDef(affinityHashMap * m, const affEntry &key, uint32_t * defva
   }
 }
 
+double getAffinity(affEntry ae){
+	 uint32_t * jointFreq = GetWithDef(sum_affEntries, ae, null_joint_freq);
+	 return (double) jointFreq[maxWindowSize] / std::max(sum_freqs[ae.first][maxWindowSize],sum_freqs[ae.second][maxWindowSize]);
+}
+
+bool affEntrySumCmp(affEntry ae_left, affEntry ae_right){
+	 uint32_t * jointFreq_left = GetWithDef(sum_affEntries, ae_left, null_joint_freq);
+	 uint32_t * jointFreq_right = GetWithDef(sum_affEntries, ae_right, null_joint_freq);
+
+	 int ae_left_val = jointFreq_left[maxWindowSize]*std::max(sum_freqs[ae_right.first][maxWindowSize],sum_freqs[ae_right.second][maxWindowSize]);
+	 int ae_right_val = jointFreq_right[maxWindowSize]*std::max(sum_freqs[ae_left.first][maxWindowSize],sum_freqs[ae_left.second][maxWindowSize]);
+
+	 if(ae_left_val != ae_right_val)
+	 	return (ae_left_val > ae_right_val);
+
+	if(ae_left.first != ae_right.first)
+		return (ae_left.first > ae_right.first);
+		
+	return ae_left.second > ae_right.second;
+
+}
+
+bool affEntrySizeCmp(affEntry ae_left, affEntry ae_right){
+	 uint32_t * jointFreq_left = GetWithDef(sum_affEntries, ae_left, null_joint_freq);
+	 uint32_t * jointFreq_right = GetWithDef(sum_affEntries, ae_right, null_joint_freq);
+
+	 int ae_left_val = jointFreq_left[maxWindowSize]*std::max(sum_freqs[ae_right.first][maxWindowSize],sum_freqs[ae_right.second][maxWindowSize])* std::log(bb_count[ae_right.first]+bb_count[ae_right.second]);
+	 int ae_right_val = jointFreq_right[maxWindowSize]*std::max(sum_freqs[ae_left.first][maxWindowSize],sum_freqs[ae_left.second][maxWindowSize])*std::log(bb_count[ae_left.first]+bb_count[ae_left.second]);
+
+	 if(ae_left_val != ae_right_val)
+	 	return (ae_left_val > ae_right_val);
+
+	if(ae_left.first != ae_right.first)
+		return (ae_left.first > ae_right.first);
+		
+	return ae_left.second > ae_right.second;
+
+}
+
 
 bool affEntry1DCmp(affEntry ae_left, affEntry ae_right){
 	 uint32_t * jointFreq_left = GetWithDef(sum_affEntries, ae_left, null_joint_freq);
@@ -774,6 +822,9 @@ bool affEntry2DCmp(affEntry ae_left, affEntry ae_right){
   uint32_t * jointFreq_right = GetWithDef(sum_affEntries, ae_right, null_joint_freq);
 
 	int ae_left_val, ae_right_val;
+
+
+
 	
 	short freqlevel;
   for(freqlevel=maxFreqLevel-1; freqlevel>=0; --freqlevel){
@@ -800,7 +851,6 @@ bool affEntry2DCmp(affEntry ae_left, affEntry ae_right){
 		return (ae_left.first > ae_right.first);
 	
 	return ae_left.second > ae_right.second;
-
 }
 
 affEntry::affEntry(short _first, short _second){
@@ -838,12 +888,23 @@ bool eqAffEntry::operator()(affEntry const& entry1, affEntry const& entry2) cons
 
 
 
-void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
+void disjointSet::mergeSets(short id1, short id2){
+
+	disjointSet * set1 = sets[id1];
+	disjointSet * set2 = sets[id2];
+
+		if(sets[id1]==sets[id2]){
+			fprintf(orderFile,"already merged!\n");
+			return;
+			}else {
+
 
 		disjointSet * merger = (set1->size()>=set2->size())?(set1):(set2);
-		
 		disjointSet * mergee = (set1->size()<set2->size())?(set1):(set2);
 
+
+		short merger_id = (set1->size()>=set2->size())?(id1):(id2);
+		short mergee_id = (set1->size()<set2->size())?(id1):(id2);
 
 		affEntry frontMerger_backMergee(merger->elements.front(), mergee->elements.back());
 		affEntry backMerger_backMergee(merger->elements.back(), mergee->elements.back());
@@ -857,8 +918,36 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
 		assert(affEntryCmp(conAffEntries[1],conAffEntries[2]) || (conAffEntries[1]==conAffEntries[2]));
 		assert(affEntryCmp(conAffEntries[2],conAffEntries[3]) || (conAffEntries[2]==conAffEntries[3]));
 
-		bool con_mergee_front = (conAffEntries[0] == backMerger_frontMergee) || (conAffEntries[0] == frontMerger_frontMergee);
-		bool con_merger_front = (conAffEntries[0] == frontMerger_frontMergee) || (conAffEntries[0] == frontMerger_backMergee);
+		int ind = -1;
+
+
+		int merger_dist = get_dist(merger_id);
+		int mergee_dist = get_dist(mergee_id);
+
+		int total_dist;
+
+		bool con_mergee_front; 
+		bool con_merger_front;
+		
+		do{
+			ind++;
+			assert(ind<4 && "assertion failed!\n");
+			total_dist = 0;
+			con_mergee_front = (conAffEntries[ind] == backMerger_frontMergee) || (conAffEntries[ind] == frontMerger_frontMergee);
+			con_merger_front = (conAffEntries[ind] == frontMerger_frontMergee) || (conAffEntries[ind] == frontMerger_backMergee);
+			total_dist += (con_mergee_front)?(mergee_dist):(mergee->total_bbs-mergee_dist-bb_count[mergee_id]);
+			total_dist += (con_merger_front)?(merger_dist):(merger->total_bbs-merger_dist-bb_count[merger_id]);
+			std::cerr << "total dist is: " << total_dist << "\n";
+		}while(total_dist >= 20);
+
+
+		fprintf(orderFile,"merging directions: ");
+		for(auto ae: conAffEntries)
+			fprintf(orderFile,"%f ", getAffinity(ae));
+
+
+		fprintf(orderFile,"\n");
+		fprintf(orderFile,"total dist: %d\n",total_dist);
 
 		//fprintf(stderr, "Now merging:");
 		if(con_mergee_front){
@@ -889,7 +978,9 @@ void disjointSet::mergeSets(disjointSet * set1, disjointSet* set2){
 		//	fprintf(stderr, "%hd ",*it);
 		//fprintf(stderr,"\n");
 		mergee->elements.clear();
+		merger->total_bbs += mergee->total_bbs;
 		delete mergee;
+		}
 }
 
 
@@ -925,7 +1016,10 @@ static void save_affinity_environment_variables(void) {
   profilePath = getenv("ABC_PROF_PATH");
 
 }
-extern "C" void set_bb_count_for_fid(short fid, short bbid){}
+extern "C" void set_bb_count_for_fid(short fid, short bbid){
+	bb_count[fid] = bbid;
+	std::cerr << "bbs for "<< fid << ": " << bbid << "\n";
+}
 
 
 
@@ -935,11 +1029,11 @@ extern "C" void set_bb_count_for_fid(short fid, short bbid){}
  * handler and allocating the trace buffer.
  */
 extern "C" int start_call_site_tracing(short _totalFuncs) {
+	fprintf(stderr,"TOTAL FUNCS IS: %d\n",_totalFuncs);
 
 	flush_trace = false;
 	profiling_switch = false;
-
-  	pthread_create(&prof_switch_th,NULL,prof_switch_toggle, (void *) 0);
+	pthread_create(&prof_switch_th,NULL,prof_switch_toggle, (void *) 0);
   
   //int ret=save_arguments(argc, argv);
   /*  if(argc>1)
