@@ -11,7 +11,7 @@ using namespace std;
 
 CGMap * cg_edges;
 
-FILE * cg_trace;
+//FILE * cg_trace;
 
 
 void read_graph(){
@@ -129,8 +129,8 @@ extern "C" void trace_call_edge(short caller, short callee){
               (*cg_edges)[call_entry]++;
 			//fprintf(stderr,"the result is %d\n",cg_edges[call_entry]);
           }
-	if(cg_trace)
-	fprintf(cg_trace,"%d ",callee);
+	//if(cg_trace)
+	//fprintf(cg_trace,"%d ",callee);
 }
 
 void print_optimal_layout(){
@@ -189,7 +189,6 @@ void find_optimal_layout(){
 		if(disjointSet::get_min_index(it->first)+disjointSet::get_min_index(it->second) < 10){
 			disjointSet::mergeSets(it->first,it->second);
 			disjointSet::print_layout(it->first);
-			fprintf(orderFile,"effected\n");
 		}
 	}
 
@@ -202,7 +201,7 @@ void do_exit(){
 	find_optimal_layout();
 	print_optimal_layout();
 	write_graph();
-	fclose(cg_trace);
+	//fclose(cg_trace);
 	//cg_edges->serialize(CGSerializer(),cg_file);
 	//fprintf(stderr,"sent to file\n");
 	//fclose(cg_file);
@@ -215,7 +214,7 @@ extern "C" void start_call_edge_tracing(short _totalFuncs){
 	cg_edges = new CGMap();
 	totalFuncs=_totalFuncs;
 	read_graph();
-	cg_trace = fopen("cg_trace.txt","w");
+	//cg_trace = fopen("cg_trace.txt","w");
 
 	//FILE * cg_file=fopen("graph.cgc","r");
 	//if(cg_file){

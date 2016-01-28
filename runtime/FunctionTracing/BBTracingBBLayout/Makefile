@@ -14,7 +14,7 @@ LINK_LIBS_IN_SHARED = 1
 SHARED_LIBRARY = 1
 
 #CPPFLAGS=-std=c++11 -stdlib=libstdc++ -I $(HOME)/usr/include -pg -g -Wall
-CPPFLAGS= -std=c++0x -I $(HOME)/usr/include -g -Wall  -v
+CPPFLAGS= -std=c++0x -I $(HOME)/usr/include -g -Wall 
 # Build and install this archive.                                                                                                                  
 BUILD_ARCHIVE = 1
 override NO_INSTALL_ARCHIVES =

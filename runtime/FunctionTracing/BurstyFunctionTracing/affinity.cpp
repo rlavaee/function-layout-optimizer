@@ -21,15 +21,26 @@ pid_t gettid( void )
 std::atomic<pid_t> prof_th;
 volatile bool profiling_switch; 
 pthread_t prof_switch_th;
+pid_t last_prof_th;
 volatile bool flush_trace;
 pthread_mutex_t switch_mutex;
+int rejected_exchange;
 
 extern "C" bool do_exchange(){
 	pid_t cur_pid = gettid();
 	if(prof_th.load()==cur_pid)
 		return true;
+
+	if(last_prof_th==cur_pid){
+		if(rejected_exchange){
+			rejected_exchange--;
+			return false;
+		}
+	}
 	pid_t free_th = -1;
 	bool result= prof_th.compare_exchange_strong(free_th,cur_pid);
+	if(result)
+		std::cerr << "changed prof_th to" << prof_th.load() << "\n";
 	//std::cerr << "cur_pid is: " << cur_pid << " and prof_th is: " << prof_th.load() << "\n";
 	return result;
 }
@@ -40,6 +51,8 @@ void * prof_switch_toggle(void *){
 		pthread_mutex_lock(&switch_mutex);
 		profiling_switch = true;
 		//fprintf(stderr,"for this period prof_th was: %d\n",prof_th.load());
+		last_prof_th = prof_th.load();
+		rejected_exchange = 20;
 		prof_th.store(-1);
 		pthread_mutex_unlock(&switch_mutex);
 		usleep(100000);
@@ -119,7 +132,7 @@ inline void record_execution(short FuncNum){
 	//std::cerr << "recording " << FuncNum << "\n";
 
 	if(flush_trace){
-	print_trace(&trace_list);
+	//print_trace(&trace_list);
 		while(!trace_list.empty()){
 	    	std::list<short> * last_window_trace_list= &trace_list.back().partial_trace_list;
       		trace_list_size-=last_window_trace_list->size();
@@ -520,7 +533,6 @@ void find_affinity_groups(){
 		if((min_ind = disjointSet::get_min_index(iter->first)+disjointSet::get_min_index(iter->second)) < 20){
     	disjointSet::mergeSets(iter->first, iter->second);
 			disjointSet::print_layout(iter->first);
-			fprintf(orderFile,"effected: %d \n",min_ind);
 		}
 	} 
 
@@ -1033,8 +1045,9 @@ extern "C" int start_call_site_tracing(short _totalFuncs) {
 
 	flush_trace = false;
 	profiling_switch = false;
+	last_prof_th = -1;
 	pthread_create(&prof_switch_th,NULL,prof_switch_toggle, (void *) 0);
-  
+
   //int ret=save_arguments(argc, argv);
   /*  if(argc>1)
     program_name=argv[1];
@@ -1046,7 +1059,7 @@ extern "C" int start_call_site_tracing(short _totalFuncs) {
 	totalFuncs = _totalFuncs;
   initialize_affinity_data();
   /* Set up the atexit handler. */
-  atexit (affinityAtExitHandler);
+  //atexit (affinityAtExitHandler);
 
   return 1;
 }

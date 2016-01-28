@@ -30,14 +30,15 @@ void handle_error (int retval)
 void print_counters(void){
 		char count_filename[80];
 		//sprintf(count_filename,"hw_cntrs_%d.out",getpid());
-		sprintf(count_filename,"cache_cntrs.out");
+		sprintf(count_filename,"cacheperf.out");
 		FILE * ccFile = fopen(count_filename,"r");
 		//FILE * ccFile = NULL;
-		for(int i=0 ;i< EventSetSize ;++i){
+		int i;
+		for(i=0 ;i< EventSetSize ;++i){
 				if(ccFile==NULL)
 						counters[i]=0;
 				else{
-						fscanf(ccFile,"%*s\t%lld\n",&counters[i]);
+						fscanf(ccFile,"%*s:\t%lld\n",&counters[i]);
 				}
 		}
 		
@@ -46,13 +47,13 @@ void print_counters(void){
 
 
 		ccFile = fopen(count_filename,"w");
-		for(int i=0;i<EventSetSize;++i){
-				fprintf(ccFile,"%s\t%lld\n",inst_eventnames[i],counters[i]);
+		for(i=0;i<EventSetSize;++i){
+				fprintf(ccFile,"%s:\t%lld\n",inst_eventnames[i],counters[i]);
 		}
 		fclose(ccFile);
 }
 
-void init_cache_counters(int avail_counters){
+void init_perf_counters(int avail_counters){
 		atexit(print_counters);
 
 		if ( PAPI_library_init( PAPI_VER_CURRENT ) != PAPI_VER_CURRENT ) {
@@ -69,7 +70,8 @@ void init_cache_counters(int avail_counters){
 
 		 if (PAPI_create_eventset(&EventSet) != PAPI_OK)
 				     handle_error(1);
-		 for(int i=0; i< EventSetSize; ++i)
+		int i;
+		 for(i=0; i< EventSetSize; ++i)
 				 if (PAPI_add_event(EventSet, inst_events[i]) != PAPI_OK)
 						     handle_error(1);
 
