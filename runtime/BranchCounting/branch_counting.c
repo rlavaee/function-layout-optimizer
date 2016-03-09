@@ -5,21 +5,21 @@
 #include <unistd.h>
 
 
-#define MAX_EVENT_SIZE 4
+#define MAX_EVENT_SIZE 6
 
 int eventsize;
 int *events;
 long long counters[MAX_EVENT_SIZE];
 long long sumcounters[MAX_EVENT_SIZE];
 
-int inst_events[4]=//{PAPI_L1_ICM, PAPI_TOT_INS, PAPI_L2_ICM, PAPI_TLB_IM, 
-			{PAPI_BR_INS,
-						PAPI_BR_CN, PAPI_BR_TKN, PAPI_BR_MSP};
+int inst_events[6]=//{PAPI_L1_ICM, PAPI_TOT_INS, PAPI_L2_ICM, PAPI_TLB_IM, 
+			{PAPI_BR_UCN,
+						PAPI_BR_CN, PAPI_BR_TKN, PAPI_BR_NTK, PAPI_BR_MSP, PAPI_BR_PRC};
 //int data_events[eventsize]={PAPI_L1_DCM, PAPI_L2_DCM, PAPI_L2_DCA};
 //int accesses_events[eventsize]={PAPI_TOT_INS,PAPI_L2_ICA,PAPI_L2_DCA};
-char inst_eventnames[4][7]//={"L1_ICM\0", "L1_ICA\0","L2_ICM\0","TLB_IM\0", 
-		 ={"BR_INS\0",
-						"BR_CON\0", "BR_TKN\0", "BR_MSP\0"};
+char inst_eventnames[6][7]//={"L1_ICM\0", "L1_ICA\0","L2_ICM\0","TLB_IM\0", 
+		 ={"BR_UNC\0",
+						"BR_CON\0", "BR_TKN\0", "BR_NTK\0", "BR_MSP\0", "BR_PRC\0"};
 //char * data_eventnames[eventsize]={"L1_DCM", "L2_DCM","L2_DCA";
 //char * accesses_eventnames[eventsize]={"TOT_INST","L2_ICA","L2_DCA"};
 
@@ -29,7 +29,7 @@ char * ccFileName;
 void print_counters(void){
 		char count_filename[80];
 		//sprintf(count_filename,"hw_cntrs_%d.out",getpid());
-		sprintf(count_filename,"branchperf.out");
+		sprintf(count_filename,"branch_cntrs.out");
 		FILE * ccFile = fopen(count_filename,"r");
 		//FILE * ccFile = NULL;
 		int i=0;
@@ -38,7 +38,7 @@ void print_counters(void){
 				if(ccFile==NULL)
 						sumcounters[i]=0;
 				else{
-						fscanf(ccFile,"%*s:\t%lld\n",&sumcounters[i]);
+						fscanf(ccFile,"%*s\t%lld\n",&sumcounters[i]);
 				}
 		}
 		PAPI_read_counters(counters,eventsize);
@@ -50,12 +50,12 @@ void print_counters(void){
 				//printf("%lld %lld\n",counters[i], sumcounters[i]);
 				long long me = counters[i];
 				me += sumcounters[i];
-				fprintf(ccFile,"%s:\t%lld\n",inst_eventnames[i],me);
+				fprintf(ccFile,"%s\t%lld\n",inst_eventnames[i],me);
 		}
 		fclose(ccFile);
 }
 
-void init_perf_counters(int avail_counters){
+void init_cache_counters(int avail_counters){
 		//eventsize=avail_counters;
 		eventsize=MAX_EVENT_SIZE;
 		atexit(print_counters);

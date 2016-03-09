@@ -141,7 +141,7 @@ bool affEntry2DCmp(const affEntry, const affEntry);
 
 
 const char * get_dim_version(){ 
-	if(affEntryCmp==&affEntry1DCmp)
+	if(affEntryCmp==&affEntry1DCmp || affEntryCmp==&affEntrySumCmp)
 			return one_dim_version;
 	if(affEntryCmp==&affEntry2DCmp)
 			return two_dim_version_c;

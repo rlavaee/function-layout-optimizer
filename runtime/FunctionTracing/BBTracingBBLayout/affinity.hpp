@@ -125,7 +125,7 @@ struct bb_pair_hash{
   }
 };
 
-typedef boost::unordered_map <BlockPair, std::vector<uint32_t>, BlockPair_hash > JointFreqMap;
+typedef std::unordered_map <BlockPair, std::vector<uint32_t>, BlockPair_hash > JointFreqMap;
 typedef std::unordered_map <Block, uint32_t*> SingleFreqMap;
 typedef std::vector < std::vector< boost::container::flat_map<bb_t,uint32_t>>> FallThroughMap;
 

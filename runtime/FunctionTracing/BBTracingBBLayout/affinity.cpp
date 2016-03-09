@@ -15,7 +15,6 @@
 #include <sys/syscall.h>
 #include <atomic>
 
-
 #define MAX_DIST 10
 
 pid_t gettid( void )
@@ -29,25 +28,16 @@ vector< vector< vector<bb_t> > > ucfg;
 
 volatile bool profiling_switch; 
 pthread_t prof_switch_th;
-pid_t last_prof_th;
 volatile bool flush_trace;
 pthread_mutex_t switch_mutex;
-int rejected_exchange;
 
 extern "C" bool do_exchange(){
 	pid_t cur_pid = gettid();
 	if(prof_th.load()==cur_pid)
 		return true;
-	if(last_prof_th==cur_pid){
-		if(rejected_exchange){
-			rejected_exchange--;
-			return false;
-		}
-	}
 	pid_t free_th = -1;
 	bool result= prof_th.compare_exchange_strong(free_th,cur_pid);
-	if(result)
-		std::cerr << "changed prof_th to" << prof_th.load() << "\n";
+	std::cerr << "cur_pid is: " << cur_pid << " and prof_th is: " << prof_th.load() << "\n";
 	return result;
 }
 
@@ -55,7 +45,9 @@ const char * profilePath = NULL;
 
 void * prof_switch_toggle(void *){
 	while(true){
-		usleep(100000);
+		cerr << "thread: " << std::this_thread::get_id() << "\n";
+		uint32_t r=rand()%10000;
+		usleep(10000+r);
 		pthread_mutex_lock(&switch_mutex);
 		profiling_switch = false;
 		flush_trace = true;
@@ -63,9 +55,7 @@ void * prof_switch_toggle(void *){
 		usleep(40000);
 		pthread_mutex_lock(&switch_mutex);
 		profiling_switch = true;
-		//fprintf(stderr,"for this period prof_th was: %d\n",prof_th.load());
-		last_prof_th = prof_th.load();
-		rejected_exchange = 20;
+		fprintf(stderr,"for this period prof_th was: %d\n",prof_th.load());
 		prof_th.store(-1);
 		pthread_mutex_unlock(&switch_mutex);
 	}
@@ -189,7 +179,6 @@ void record_bb_exec(Block rec){
 				if(sampled)
 					fprintf(debugFile,"new window\n");
 				print_trace(&trace_list);
-				fflush(debugFile);
 		}
 
 		auto rec_key = get_key(rec);
@@ -337,7 +326,9 @@ void initialize_affinity_data(){
 
 		if(graph_buf.is_open()){
 			InputStream graph_is(&graph_buf);
+			cerr << "JOINT FREQS \n";
 			joint_freqs = deserialize<JointFreqMap>(graph_is);
+			cerr << "FALL THROUGHS \n";
 			fall_thrus = deserialize<FallThroughMap>(graph_is);
 		}
 
@@ -419,7 +410,7 @@ func_t cur_fid;
 void find_affinity_groups(){
 
 
-			FILE * cfg_in = fopen("cfg.bbabc","r");
+			FILE * cfg_in = fopen("cfg.out","r");
 
 			
 			func_t fid;
@@ -446,16 +437,14 @@ void find_affinity_groups(){
 
 			fclose(cfg_in);
 
-			cerr << "read cfg\t" << cfg_in << "\n";
 
+		ofstream matching_out("matching.out");
 
-		ofstream matching_out(get_versioned_filename("matching"));
-
-		ofstream wcfg_out(get_versioned_filename("wcfg"));
+		ofstream wcfg_out("wcfg.out");
 
 
 		for(func_t fid=0; fid < totalFuncs; ++fid){
-				wcfg_out << std::dec << "function is: " << fid << endl;
+				wcfg_out << "function is: " << fid << endl;
 				//cout << "function is: " << fid << endl;
 				BipartiteGraph wcfg(bb_count[fid]);
 
@@ -468,14 +457,14 @@ void find_affinity_groups(){
 							uint32_t fallt = (res==fall_thrus[fid][bbid1].end())?(0):(res->second);
 							int total_count = fallt + 2/ucfg[fid][bbid1].size();
 							wcfg.edges[bbid1].push_back(pair<int,int>(bbid2, total_count));
-							wcfg_out << std::hex << "ucfg edge : (" << bbid1  << "," << bbid2 << "): " << std::dec << total_count << endl;
+							wcfg_out << "ucfg edge : (" << bbid1  << "," << bbid2 << "): " << total_count << endl;
 						}
 
 
 						if(ucfg[fid][bbid1].empty())
 								for(auto &p: fall_thrus[fid][bbid1]){
 										wcfg.edges[bbid1].push_back(p);
-										wcfg_out << std::hex << "no ucfg edge : (" << bbid1  << "," << p.first << "): " << std::dec << p.second << endl;
+										wcfg_out << "no ucfg edge : (" << bbid1  << "," << p.first << "): " << p.second << endl;
 								}
 				}
 
@@ -529,15 +518,14 @@ void affinityAtExitHandler(){
 		if(DEBUG>0)
 				fclose(debugFile);
 		cerr << "came here\n";
+		cerr << "came here\n";
+		cerr << "came here\n";
+		cerr << "came here\n";
 
 		aggregate_affinity();
-		cerr << "came here\n";
 		find_affinity_groups();
-		cerr << "came here\n";
 		emit_graphFile();
-		cerr << "came here\n";
 		print_optimal_layout();
-		cerr << "came here\n";
 
 }
 
@@ -887,7 +875,6 @@ extern "C" int start_bb_call_site_tracing(func_t _totalFuncs) {
 		//profiling_switch = false;
 		profiling_switch = true;
 		prof_th.store(-1);
-		last_prof_th = -1;
 		pthread_mutex_unlock(&switch_mutex);
 
   	pthread_create(&prof_switch_th,NULL,prof_switch_toggle, (void *) 0);
@@ -930,6 +917,7 @@ extern "C" void record_bb_entry(Block fid_bbid){
 
 		std::thread::id tid = std::this_thread::get_id();
 
+		//cerr << "khodesh : " << fall_thrus[fid][last_bbs[tid]] << "\n";
 		auto res = fall_thrus[fid][last_bbs[tid]].emplace(bbid,1);
 		//cerr << fid << "[" << last_bb << "," << bbid << "]\n";
 
